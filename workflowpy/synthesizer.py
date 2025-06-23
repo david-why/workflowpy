@@ -10,12 +10,9 @@ class Synthesizer:
 
     def __init__(self):
         self.actions: list[Action] = []
-
-    def add_action(self, identifier: str, parameters: dict[str, Any]) -> None:
-        action = Action(
-            WFWorkflowActionIdentifier=identifier, WFWorkflowActionParameters=parameters
-        )
-        self.actions.append(action)
+        self.functions: dict[str, list[Action]] = {}
 
     def synthesize(self) -> Shortcut:
+        if self.functions:
+            raise NotImplementedError("Functions are not implemented yet!")
         return Shortcut(WFWorkflowActions=self.actions)

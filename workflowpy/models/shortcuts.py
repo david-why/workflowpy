@@ -1,6 +1,6 @@
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 type ContentItemClass = str
@@ -12,6 +12,10 @@ type ShortcutType = Literal[
 class Action(BaseModel):
     WFWorkflowActionIdentifier: str
     WFWorkflowActionParameters: dict[str, Any] = Field(default_factory=dict)
+    
+    @property
+    def uuid(self) -> str | None:
+        return self.WFWorkflowActionParameters.get('UUID')
 
 
 class ShortcutIcon(BaseModel):
@@ -28,16 +32,16 @@ class ImportQuestion(BaseModel):
 
 
 class Shortcut(BaseModel):
-    WFQuickActionSurfaces: list = []
+    WFQuickActionSurfaces: list = []  # Always an empty list
     WFWorkflowActions: list[Action] = []
-    WFWorkflowClientVersion: Literal["3607.0.2"] = "3607.0.2"
+    WFWorkflowClientVersion: str = "3607.0.2"  # Constant
     WFWorkflowHasOutputFallback: bool = False
     WFWorkflowHasShortcutInputVariables: bool = False
     WFWorkflowIcon: ShortcutIcon = ShortcutIcon()
     WFWorkflowImportQuestions: list[ImportQuestion] = []
     WFWorkflowInputContentItemClasses: list[ContentItemClass] = []
     WFWorkflowIsDisabledOnLockScreen: bool = False
-    WFWorkflowMinimumClientVersion: int = 900
-    WFWorkflowMinimumClientVersionString: str = "900"
+    WFWorkflowMinimumClientVersion: int = 900  # Constant
+    WFWorkflowMinimumClientVersionString: str = "900"  # Constant
     WFWorkflowOutputContentItemClasses: list[ContentItemClass] = []
     WFWorkflowTypes: list[ShortcutType] = []
