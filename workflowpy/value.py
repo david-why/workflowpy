@@ -39,9 +39,6 @@ class PythonActionBuilderValue(PythonValue):
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.func(*args, **kwargs)
-        # if isinstance(result, list):
-        #     return result
-        # return [result]
 
 
 class ShortcutValue(Value):
@@ -92,13 +89,16 @@ class MagicVariableValue(ShortcutValue):
         }
 
 
+# "pseudo" value, will never be held by a variable
 class TokenStringValue(ShortcutValue):
     def __init__(self, *parts: str | ShortcutValue):
         self.parts = parts
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
-        if len(self.parts) == 1 and isinstance(self.parts[0], TokenStringValue):
-            return self.parts[0].synthesize(actions)
+        if len(self.parts) == 1:
+            if isinstance(self.parts[0], TokenStringValue):
+                return self.parts[0].synthesize(actions)
+            return self.parts[0]  # type: ignore  # FIXME maybe...?
         attachments = {}
         text = ''
         for part in self.parts:
@@ -111,4 +111,16 @@ class TokenStringValue(ShortcutValue):
         return {
             'Value': {'attachmentsByRange': attachments, 'string': text},
             'WFSerializationType': 'WFTextTokenString',
+        }
+
+
+# also pseudo
+class TokenAttachmentValue(ShortcutValue):
+    def __init__(self, value: ShortcutValue):
+        self.value = value
+
+    def synthesize(self, actions: list[Action]) -> dict[str, Any]:
+        return {
+            'Value': self.value.synthesize(actions),
+            'WFSerializationType': 'WFTextTokenAttachment',
         }

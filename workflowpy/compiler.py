@@ -1,4 +1,5 @@
 import ast as a
+from enum import Enum, IntEnum
 from typing import Any, NoReturn, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -6,13 +7,27 @@ from pydantic import BaseModel, ConfigDict, Field
 from workflowpy.modules import modules
 from workflowpy.models.shortcuts import Action
 from workflowpy.synthesizer import Synthesizer
-from workflowpy.value import ConstantValue, PythonActionBuilderValue, PythonValue, TokenStringValue, Value
+from workflowpy.value import (
+    ConstantValue,
+    PythonActionBuilderValue,
+    PythonValue,
+    TokenStringValue,
+    Value,
+)
+
+
+class ScopeType(IntEnum):
+    GLOBAL = 1
+    FUNCTION = 2
+    FOREACH = 3
+    FORCOUNTER = 4
 
 
 class Scope(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str | None
+    type: ScopeType
     actions: list[Action] = Field(default_factory=list)
     variables: dict[str, Value] = Field(default_factory=dict)
 
@@ -29,20 +44,30 @@ class Compiler(a.NodeVisitor):
     This class is responsible for compiling Python code to actions.
     """
 
-    def _push_scope(self, func_name: str | None):
-        self.scopes.append(Scope(name=func_name))
+    def _push_scope(self, name: str | None, type: ScopeType):
+        self.scopes.append(Scope(name=name, type=type))
 
     def _pop_scope(self):
         scope = self.scopes.pop()
-        assert scope.name
-        self.functions[scope.name] = scope
+        assert scope.type != ScopeType.GLOBAL
+        if scope.type == ScopeType.FUNCTION:
+            assert scope.name
+            self.functions[scope.name] = scope
+        else:
+            self.actions.extend(scope.actions)
 
     @property
     def variables(self):
         return self.scopes[-1].variables
 
+    @property
+    def actions(self):
+        return self.scopes[-1].actions
+
     def compile(self, module: a.Module | str):
-        self.scopes: list[Scope] = [Scope(name=None, variables=modules[''].copy())]
+        self.scopes: list[Scope] = [
+            Scope(name=None, type=ScopeType.GLOBAL, variables=modules[''].copy())
+        ]
         self.functions: dict[str, Scope] = {}
         if isinstance(module, str):
             module = a.parse(module)
@@ -99,10 +124,42 @@ class Compiler(a.NodeVisitor):
             raise NotImplementedError("**kwargs in Call is not supported")
         kws = cast(dict[str, Any], kws)
         if isinstance(func, PythonActionBuilderValue):
-            result = func(self.scopes[-1].actions, *args, **kws)
+            result = func(self.actions, *args, **kws)
             return result
         else:
             raise NotImplementedError(f"Call with func {func} is not supported")
+
+    def visit_For(self, node: a.For) -> Any:
+        if node.orelse:
+            raise NotImplementedError("else: is not supported in For statements")
+        if (
+            isinstance(node.iter, a.Call)
+            and isinstance(node.iter.func, a.Name)
+            and node.iter.func.id == 'range'
+        ):
+            assert (
+                not node.iter.keywords
+            ), "for...range constructs cannot have keyword arguments"
+            range_args = node.iter.args
+            # TODO support range(len(X))
+            assert all(
+                isinstance(x, a.Constant) and isinstance(x.value, int)
+                for x in range_args
+            ), "All arguments to for...range must be literal integers"
+            range_args = cast(list[a.Constant], range_args)
+            if len(range_args) == 1:
+                range_start = 0
+                range_end = cast(int, range_args[0].value)
+            elif len(range_args) == 2:
+                range_start = cast(int, range_args[0].value)
+                range_end = cast(int, range_args[1].value)
+            elif len(range_args) == 3:
+                raise NotImplementedError("for...range with step is not supported")
+            else:
+                raise ValueError("for...range has incorrect arguments")
+            count = range_end - range_start + 1
+            assert count >= 0, "for...range has no iterations"
+
 
     # expressions
 
@@ -127,6 +184,15 @@ class Compiler(a.NodeVisitor):
         if node.format_spec or node.conversion != -1:
             raise NotImplementedError("Conversions in F-strings are not supported")
         return self.visit(node.value)
+
+    def visit_List(self, node: a.List) -> Any:
+        values = [
+            TokenStringValue(self.visit(x)).synthesize(self.actions) for x in node.elts
+        ]
+        action = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.list',
+            WFWorkflowActionParameters={'WFItems': values},
+        )
 
     def generic_visit(self, node: a.AST) -> NoReturn:
         name = node.__class__.__name__

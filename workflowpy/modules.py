@@ -3,7 +3,12 @@ __all__ = ['modules']
 
 from workflowpy.definitions.action import action
 from workflowpy.models.shortcuts import Action, OutputDefinition
-from workflowpy.value import ShortcutValue as V, TokenStringValue, Value
+from workflowpy.value import (
+    ShortcutValue as V,
+    TokenAttachmentValue,
+    TokenStringValue,
+    Value,
+)
 from workflowpy import value_type as T
 
 type L = list[Action]
@@ -33,4 +38,16 @@ def _print(actions: L, /, *args: V):
     actions.append(action)
 
 
-modules = {'workflowpy': {}, '': {'input': _input, 'print': _print}}
+@action()
+def _int(a: L, /, value: V):
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.number',
+        WFWorkflowActionParameters={
+            'WFNumberActionNumber': TokenAttachmentValue(value).synthesize(a)
+        },
+    ).with_output('Number', T.number)
+    a.append(action)
+    return action.output
+
+
+modules = {'workflowpy': {}, '': {'input': _input, 'print': _print, 'int': _int}}
