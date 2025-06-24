@@ -89,6 +89,14 @@ class MagicVariableValue(ShortcutValue):
         }
 
 
+class VariableValue(ShortcutValue):
+    def __init__(self, name: str) -> None:
+        self.name = name
+
+    def synthesize(self, actions: list[Action]) -> dict[str, Any]:
+        return {'Type': 'Variable', 'VariableName': self.name}
+
+
 # "pseudo" value, will never be held by a variable
 class TokenStringValue(ShortcutValue):
     def __init__(self, *parts: str | ShortcutValue):

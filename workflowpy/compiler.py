@@ -1,9 +1,11 @@
 import ast as a
 from enum import Enum, IntEnum
 from typing import Any, NoReturn, cast
+import uuid
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from workflowpy import value_type as T
 from workflowpy.modules import modules
 from workflowpy.models.shortcuts import Action
 from workflowpy.synthesizer import Synthesizer
@@ -11,8 +13,10 @@ from workflowpy.value import (
     ConstantValue,
     PythonActionBuilderValue,
     PythonValue,
+    TokenAttachmentValue,
     TokenStringValue,
     Value,
+    VariableValue,
 )
 
 
@@ -55,6 +59,13 @@ class Compiler(a.NodeVisitor):
             self.functions[scope.name] = scope
         else:
             self.actions.extend(scope.actions)
+
+    def _count_scopes(self, *types: ScopeType):
+        count = 0
+        for scope in self.scopes:
+            if scope.type in types:
+                count += 1
+        return count
 
     @property
     def variables(self):
@@ -132,36 +143,129 @@ class Compiler(a.NodeVisitor):
     def visit_For(self, node: a.For) -> Any:
         if node.orelse:
             raise NotImplementedError("else: is not supported in For statements")
+        count_of_for = self._count_scopes(ScopeType.FORCOUNTER, ScopeType.FOREACH)
+        suffix = '' if count_of_for == 0 else f' {count_of_for+1}'
+        grouping_uuid = str(uuid.uuid4()).upper()
         if (
             isinstance(node.iter, a.Call)
             and isinstance(node.iter.func, a.Name)
             and node.iter.func.id == 'range'
         ):
+            assert isinstance(
+                node.target, a.Name
+            ), "Only simple loop variables are supported"
             assert (
                 not node.iter.keywords
             ), "for...range constructs cannot have keyword arguments"
             range_args = node.iter.args
             # TODO support range(len(X))
-            assert all(
-                isinstance(x, a.Constant) and isinstance(x.value, int)
-                for x in range_args
-            ), "All arguments to for...range must be literal integers"
-            range_args = cast(list[a.Constant], range_args)
             if len(range_args) == 1:
-                range_start = 0
-                range_end = cast(int, range_args[0].value)
+                range_start = ConstantValue(0)
+                range_end = self.visit(range_args[0])
             elif len(range_args) == 2:
-                range_start = cast(int, range_args[0].value)
-                range_end = cast(int, range_args[1].value)
+                range_start = self.visit(range_args[0])
+                range_end = self.visit(range_args[1])
             elif len(range_args) == 3:
                 raise NotImplementedError("for...range with step is not supported")
             else:
                 raise ValueError("for...range has incorrect arguments")
-            count = range_end - range_start + 1
-            assert count >= 0, "for...range has no iterations"
+            count_action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.calculateexpression',
+                WFWorkflowActionParameters={
+                    'Input': TokenStringValue(
+                        range_end, ' - ', range_start, ' + 1'
+                    ).synthesize(self.actions)
+                },
+            ).with_output('Calculation Result', T.number)
+            self.actions.append(count_action)
+            count_value = count_action.output
+            assert count_value
+            start_action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.repeat.count',
+                WFWorkflowActionParameters={
+                    'GroupingIdentifier': grouping_uuid,
+                    'WFControlFlowMode': 0,
+                    'WFRepeatCount': TokenAttachmentValue(count_value).synthesize(
+                        self.actions
+                    ),
+                },
+            )
+            end_action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.repeat.count',
+                WFWorkflowActionParameters={
+                    'GroupingIdentifier': grouping_uuid,
+                    'WFControlFlowMode': 2,
+                },
+            )
+            self._push_scope(None, ScopeType.FORCOUNTER)
+            self.variables[node.target.id] = VariableValue(f'Repeat Index{suffix}')
+        elif (
+            isinstance(node.iter, a.Call)
+            and isinstance(node.iter.func, a.Name)
+            and node.iter.func.id == 'enumerate'
+        ):
+            assert (
+                not node.iter.keywords and len(node.iter.args) == 1
+            ), "for...enumerate has incorrect arguments"
+            assert (
+                isinstance(node.target, a.Tuple)
+                and len(node.target.elts) == 2
+                and isinstance(node.target.elts[0], a.Name)
+                and isinstance(node.target.elts[1], a.Name)
+            ), "Only two loop variables in a tuple is supported"
+            iterable = self.visit(node.iter.args[0])
+            start_action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.repeat.each',
+                WFWorkflowActionParameters={
+                    'GroupingIdentifier': grouping_uuid,
+                    'WFControlFlowMode': 0,
+                    'WFInput': TokenAttachmentValue(iterable).synthesize(self.actions),
+                },
+            )
+            end_action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.repeat.each',
+                WFWorkflowActionParameters={
+                    'GroupingIdentifier': grouping_uuid,
+                    'WFControlFlowMode': 2,
+                },
+            )
+            self._push_scope(None, ScopeType.FOREACH)
+            self.variables[node.target.elts[0].id] = VariableValue(
+                f'Repeat Index{suffix}'
+            )
+            self.variables[node.target.elts[1].id] = VariableValue(
+                f'Repeat Item{suffix}'
+            )
+        else:
+            assert isinstance(
+                node.target, a.Name
+            ), "Only simple loop variables are supported"
+            iterable = self.visit(node.iter)
+            start_action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.repeat.each',
+                WFWorkflowActionParameters={
+                    'GroupingIdentifier': grouping_uuid,
+                    'WFControlFlowMode': 0,
+                    'WFInput': TokenAttachmentValue(iterable).synthesize(self.actions),
+                },
+            )
+            end_action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.repeat.each',
+                WFWorkflowActionParameters={
+                    'GroupingIdentifier': grouping_uuid,
+                    'WFControlFlowMode': 2,
+                },
+            )
+            self._push_scope(None, ScopeType.FOREACH)
+            self.variables[node.target.id] = VariableValue(f'Repeat Item{suffix}')
 
+        self.actions.append(start_action)
+        for stmt in node.body:
+            self.visit(stmt)
+        self.actions.append(end_action)
+        self._pop_scope()
 
-    # expressions
+    # expressions; all should return a Value
 
     def visit_Name(self, node: a.Name) -> Any:
         for scope in self.scopes[::-1]:
@@ -192,7 +296,9 @@ class Compiler(a.NodeVisitor):
         action = Action(
             WFWorkflowActionIdentifier='is.workflow.actions.list',
             WFWorkflowActionParameters={'WFItems': values},
-        )
+        ).with_output('List', T.any)
+        self.actions.append(action)
+        return action.output
 
     def generic_visit(self, node: a.AST) -> NoReturn:
         name = node.__class__.__name__
