@@ -1,23 +1,36 @@
 import functools
+import inspect
 from typing import Callable, ParamSpec
 import uuid
 
+from pydantic import BaseModel
+
 from workflowpy.models.shortcuts import Action
+from workflowpy.value import OutputDefinition, PythonActionBuilderValue
+from workflowpy.value_type import ValueType
 
 P = ParamSpec('P')
 
 
-def action(has_output: bool = True):
-    def decorator(func: Callable[P, Action]) -> Callable[P, Action]:
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            action = func(*args, **kwargs)
-            if has_output:
-                action.WFWorkflowActionParameters.setdefault(
-                    'UUID', str(uuid.uuid4()).upper()
-                )
-            return action
+def action(output_definition: OutputDefinition | None = None):
+    def decorator(func: Callable[P, Action | list[Action]]) -> PythonActionBuilderValue:
+        # signature = inspect.signature(func)
+        # return_annot = signature.return_annotation
+        # has_output = not (return_annot is inspect.Signature.empty or return_annot is None)
 
-        return wrapper
+        # @functools.wraps(func)
+        # def wrapper(*args, **kwargs):
+        #     actions = func(*args, **kwargs)
+        #     if not isinstance(actions, list):
+        #         actions = [actions]
+        #     if has_output:
+        #         actions.WFWorkflowActionParameters.setdefault(
+        #             'UUID', str(uuid.uuid4()).upper()
+        #         )
+        #     return action
+
+        builder = PythonActionBuilderValue(func, output_definition)
+
+        return builder
 
     return decorator

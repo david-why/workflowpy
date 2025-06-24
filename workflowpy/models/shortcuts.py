@@ -1,4 +1,5 @@
-from typing import Any, Literal
+from typing import Any, Literal, Self
+import uuid
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -12,10 +13,14 @@ type ShortcutType = Literal[
 class Action(BaseModel):
     WFWorkflowActionIdentifier: str
     WFWorkflowActionParameters: dict[str, Any] = Field(default_factory=dict)
-    
+
     @property
     def uuid(self) -> str | None:
         return self.WFWorkflowActionParameters.get('UUID')
+
+    def with_output(self) -> Self:
+        self.WFWorkflowActionParameters.setdefault('UUID', str(uuid.uuid4()).upper())
+        return self
 
 
 class ShortcutIcon(BaseModel):
