@@ -1,7 +1,9 @@
 from typing import Any, Literal, Self
 import uuid
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from workflowpy.value_type import ValueType
 
 
 type ContentItemClass = str
@@ -10,17 +12,36 @@ type ShortcutType = Literal[
 ]
 
 
+class OutputDefinition(BaseModel):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    name: str
+    type: ValueType
+
+
 class Action(BaseModel):
     WFWorkflowActionIdentifier: str
     WFWorkflowActionParameters: dict[str, Any] = Field(default_factory=dict)
+    _output_definition: OutputDefinition | None = None
 
     @property
     def uuid(self) -> str | None:
         return self.WFWorkflowActionParameters.get('UUID')
 
-    def with_output(self) -> Self:
+    def with_output(self, name: str, type: ValueType) -> Self:
+        self._output_definition = OutputDefinition(name=name, type=type)
         self.WFWorkflowActionParameters.setdefault('UUID', str(uuid.uuid4()).upper())
         return self
+
+    @property
+    def output(self):
+        # i hate circular imports
+        from workflowpy.value import MagicVariableValue
+
+        if self._output_definition is not None:
+            uuid = self.uuid
+            assert uuid
+            return MagicVariableValue(uuid, self._output_definition.name)
 
 
 class ShortcutIcon(BaseModel):

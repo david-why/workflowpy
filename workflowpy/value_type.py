@@ -16,3 +16,4 @@ class ValueType:
 _file_size = ValueType('File size', 'WFFileSizeContentItem', {})
 
 text = ValueType('Text', 'WFStringContentItem', {'File Size': _file_size})
+number = ValueType('Number', 'WFNumberContentItem', {})

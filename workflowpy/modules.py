@@ -2,25 +2,35 @@ __all__ = ['modules']
 
 
 from workflowpy.definitions.action import action
-from workflowpy.models.shortcuts import Action
-from workflowpy.value import OutputDefinition, Value
+from workflowpy.models.shortcuts import Action, OutputDefinition
+from workflowpy.value import ShortcutValue as V, TokenStringValue, Value
 from workflowpy import value_type as T
 
+type L = list[Action]
 
-@action(output_definition=OutputDefinition(name='Ask for Input', type=T.text))
-def _input(prompt: Value):
-    actions = []
-    actions.append(
-        Action(
-            WFWorkflowActionIdentifier='is.workflow.actions.ask',
-            WFWorkflowActionParameters={
-                'WFAllowsMultilineText': False,
-                # 'WFAskActionDefaultAnswer': '',
-                'WFAskActionPrompt': prompt.synthesize(actions),
-            },
-        )
+
+@action()
+def _input(actions: L, /, prompt: V):
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.ask',
+        WFWorkflowActionParameters={
+            'WFAllowsMultilineText': False,
+            # 'WFAskActionDefaultAnswer': '',
+            'WFAskActionPrompt': TokenStringValue(prompt).synthesize(actions),
+        },
+    ).with_output('Ask for Input', T.text)
+    actions.append(action)
+    return action.output
+
+
+@action()
+def _print(actions: L, /, *args: V):
+    to_print = args[0] if len(args) == 1 else TokenStringValue(*args)
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.showresult',
+        WFWorkflowActionParameters={'Text': to_print.synthesize(actions)},
     )
-    return actions
+    actions.append(action)
 
 
-modules = {'workflowpy': {}, '': {'input': _input}}
+modules = {'workflowpy': {}, '': {'input': _input, 'print': _print}}

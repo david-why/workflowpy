@@ -5,15 +5,15 @@ import uuid
 
 from pydantic import BaseModel
 
-from workflowpy.models.shortcuts import Action
-from workflowpy.value import OutputDefinition, PythonActionBuilderValue
+from workflowpy.models.shortcuts import Action, OutputDefinition
+from workflowpy.value import  PythonActionBuilderValue, Value
 from workflowpy.value_type import ValueType
 
 P = ParamSpec('P')
 
 
-def action(output_definition: OutputDefinition | None = None):
-    def decorator(func: Callable[P, Action | list[Action]]) -> PythonActionBuilderValue:
+def action():
+    def decorator(func: Callable[..., Value | None]) -> PythonActionBuilderValue:
         # signature = inspect.signature(func)
         # return_annot = signature.return_annotation
         # has_output = not (return_annot is inspect.Signature.empty or return_annot is None)
@@ -29,7 +29,7 @@ def action(output_definition: OutputDefinition | None = None):
         #         )
         #     return action
 
-        builder = PythonActionBuilderValue(func, output_definition)
+        builder = PythonActionBuilderValue(func)
 
         return builder
 

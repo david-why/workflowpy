@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict
 
 from workflowpy.models.shortcuts import Action
 from workflowpy.value_type import ValueType
+from workflowpy import value_type as T
 
 
 class Value:
@@ -13,8 +14,11 @@ class Value:
     They represent any value (duh) that a variable can hold.
     """
 
-    def synthesize(self, actions: list[Action]) -> Any:
+    def synthesize(self, actions: list[Action]) -> dict[str, Any]:
         raise TypeError(f"Value of type {self.__class__.__name__} is not synthesizable")
+
+    def getattr(self, key: str) -> 'Value':
+        raise TypeError(f"Cannot getattr on value of type {self.__class__.__name__}")
 
 
 class PythonValue(Value):
@@ -29,25 +33,15 @@ class PythonModuleValue(PythonValue):
         return self.children[key]
 
 
-class OutputDefinition(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    name: str
-    type: ValueType
-
-
 class PythonActionBuilderValue(PythonValue):
-    def __init__(
-        self, /, func: Callable[..., Action | list[Action]], output_definition
-    ):
+    def __init__(self, /, func: Callable[..., Value | None]):
         self.func = func
-        self.output_definition = output_definition
 
-    def __call__(self, *args: Any, **kwargs: Any) -> list[Action]:
-        result = self.func(*args, **kwargs)
-        if isinstance(result, list):
-            return result
-        return [result]
+    def __call__(self, *args: Any, **kwargs: Any) -> Any:
+        return self.func(*args, **kwargs)
+        # if isinstance(result, list):
+        #     return result
+        # return [result]
 
 
 class ShortcutValue(Value):
@@ -65,8 +59,24 @@ class ConstantValue(ShortcutValue):
     def __init__(self, value: str | int | float):
         self.value = value
 
-    def synthesize(self, actions: list[Action]) -> Any:
-        return super().synthesize(actions)
+    def synthesize(self, actions: list[Action]) -> dict[str, Any]:
+        if isinstance(self.value, str):
+            action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.gettext',
+                WFWorkflowActionParameters={'WFTextActionText': self.value},
+            ).with_output('Text', T.text)
+            actions.append(action)
+            assert action.output
+            return action.output.synthesize(actions)
+        if isinstance(self.value, (int, float)):
+            action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.number',
+                WFWorkflowActionParameters={'WFNumberActionNumber': str(self.value)},
+            ).with_output('Number', T.number)
+            actions.append(action)
+            assert action.output
+            return action.output.synthesize(actions)
+        assert False
 
 
 class MagicVariableValue(ShortcutValue):
@@ -79,4 +89,26 @@ class MagicVariableValue(ShortcutValue):
             'OutputName': self.name,
             'OutputUUID': self.uuid,
             'Type': 'ActionOutput',
+        }
+
+
+class TokenStringValue(ShortcutValue):
+    def __init__(self, *parts: str | ShortcutValue):
+        self.parts = parts
+
+    def synthesize(self, actions: list[Action]) -> dict[str, Any]:
+        if len(self.parts) == 1 and isinstance(self.parts[0], TokenStringValue):
+            return self.parts[0].synthesize(actions)
+        attachments = {}
+        text = ''
+        for part in self.parts:
+            if isinstance(part, str):
+                text += part
+            else:
+                val = part.synthesize(actions)
+                attachments[f'{{{len(text)}, 1}}'] = val
+                text += '\ufffc'
+        return {
+            'Value': {'attachmentsByRange': attachments, 'string': text},
+            'WFSerializationType': 'WFTextTokenString',
         }

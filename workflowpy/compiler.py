@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from workflowpy.modules import modules
 from workflowpy.models.shortcuts import Action
 from workflowpy.synthesizer import Synthesizer
-from workflowpy.value import PythonActionBuilderValue, PythonValue, Value
+from workflowpy.value import ConstantValue, PythonActionBuilderValue, PythonValue, TokenStringValue, Value
 
 
 class Scope(BaseModel):
@@ -55,7 +55,7 @@ class Compiler(a.NodeVisitor):
         synthesizer.functions.update({k: v.actions for k, v in self.functions.items()})
         return synthesizer.synthesize()
 
-    visit_Module = a.NodeVisitor.generic_visit
+    visit_Module = visit_Expr = a.NodeVisitor.generic_visit
 
     def visit_ImportFrom(self, node: a.ImportFrom) -> Any:
         assert node.level == 0, "Relative imports are not supported"
@@ -105,12 +105,28 @@ class Compiler(a.NodeVisitor):
             raise NotImplementedError(f"Call with func {func} is not supported")
 
     # expressions
-    
+
     def visit_Name(self, node: a.Name) -> Any:
         for scope in self.scopes[::-1]:
             if node.id in scope.variables:
                 return scope.variables[node.id]
         raise NameError(f"Name {node.id!r} is not found")
+
+    def visit_Constant(self, node: a.Constant) -> Any:
+        if isinstance(node.value, (str, int, float)):
+            return ConstantValue(node.value)
+        raise TypeError(
+            f'Constants of type {node.value.__class__.__name__} are not supported'
+        )
+
+    def visit_JoinedStr(self, node: a.JoinedStr) -> Any:
+        parts = [self.visit(x) for x in node.values]
+        return TokenStringValue(*parts)
+
+    def visit_FormattedValue(self, node: a.FormattedValue) -> Any:
+        if node.format_spec or node.conversion != -1:
+            raise NotImplementedError("Conversions in F-strings are not supported")
+        return self.visit(node.value)
 
     def generic_visit(self, node: a.AST) -> NoReturn:
         name = node.__class__.__name__
