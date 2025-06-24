@@ -41,7 +41,9 @@ class Action(BaseModel):
         if self._output_definition is not None:
             uuid = self.uuid
             assert uuid
-            return MagicVariableValue(uuid, self._output_definition.name)
+            return MagicVariableValue(
+                uuid, self._output_definition.name, self._output_definition.type
+            )
 
 
 class ShortcutIcon(BaseModel):

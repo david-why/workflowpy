@@ -20,6 +20,10 @@ class Value:
     def getattr(self, key: str) -> 'Value':
         raise TypeError(f"Cannot getattr on value of type {self.__class__.__name__}")
 
+    @property
+    def type(self) -> ValueType:
+        raise TypeError(f"Value of type {self.__class__.__name__} has no content type")
+
 
 class PythonValue(Value):
     pass
@@ -75,11 +79,20 @@ class ConstantValue(ShortcutValue):
             return action.output.synthesize(actions)
         assert False
 
+    @property
+    def type(self):
+        if isinstance(self.value, str):
+            return T.text
+        if isinstance(self.value, (int, float)):
+            return T.number
+        assert False
+
 
 class MagicVariableValue(ShortcutValue):
-    def __init__(self, uuid: str, name: str) -> None:
+    def __init__(self, uuid: str, name: str, type: ValueType) -> None:
         self.uuid = uuid
         self.name = name
+        self._type = type
 
     def synthesize(self, actions: list[Action]) -> Any:
         return {
@@ -88,13 +101,22 @@ class MagicVariableValue(ShortcutValue):
             'Type': 'ActionOutput',
         }
 
+    @property
+    def type(self):
+        return self._type
+
 
 class VariableValue(ShortcutValue):
-    def __init__(self, name: str) -> None:
+    def __init__(self, name: str, type: ValueType) -> None:
         self.name = name
+        self._type = type
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
         return {'Type': 'Variable', 'VariableName': self.name}
+
+    @property
+    def type(self):
+        return self._type
 
 
 # "pseudo" value, will never be held by a variable
@@ -106,7 +128,8 @@ class TokenStringValue(ShortcutValue):
         if len(self.parts) == 1:
             if isinstance(self.parts[0], TokenStringValue):
                 return self.parts[0].synthesize(actions)
-            return self.parts[0]  # type: ignore  # FIXME maybe...?
+            if isinstance(self.parts[0], str):
+                return self.parts[0]  # type: ignore  # FIXME maybe...?
         attachments = {}
         text = ''
         for part in self.parts:
@@ -132,3 +155,13 @@ class TokenAttachmentValue(ShortcutValue):
             'Value': self.value.synthesize(actions),
             'WFSerializationType': 'WFTextTokenAttachment',
         }
+
+
+# pseudo, used in list/dict items
+class ItemValue(ShortcutValue):
+    def __init__(self, item_type: int, value: ShortcutValue):
+        self.item_type = item_type
+        self.value = value
+
+    def synthesize(self, actions: list[Action]) -> dict[str, Any]:
+        return {'WFItemType': self.item_type, 'WFValue': self.value.synthesize(actions)}

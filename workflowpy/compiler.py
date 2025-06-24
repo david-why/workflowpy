@@ -11,8 +11,10 @@ from workflowpy.models.shortcuts import Action
 from workflowpy.synthesizer import Synthesizer
 from workflowpy.value import (
     ConstantValue,
+    ItemValue,
     PythonActionBuilderValue,
     PythonValue,
+    ShortcutValue,
     TokenAttachmentValue,
     TokenStringValue,
     Value,
@@ -198,7 +200,9 @@ class Compiler(a.NodeVisitor):
                 },
             )
             self._push_scope(None, ScopeType.FORCOUNTER)
-            self.variables[node.target.id] = VariableValue(f'Repeat Index{suffix}')
+            self.variables[node.target.id] = VariableValue(
+                f'Repeat Index{suffix}', T.number
+            )
         elif (
             isinstance(node.iter, a.Call)
             and isinstance(node.iter.func, a.Name)
@@ -231,10 +235,10 @@ class Compiler(a.NodeVisitor):
             )
             self._push_scope(None, ScopeType.FOREACH)
             self.variables[node.target.elts[0].id] = VariableValue(
-                f'Repeat Index{suffix}'
+                f'Repeat Index{suffix}', T.number
             )
             self.variables[node.target.elts[1].id] = VariableValue(
-                f'Repeat Item{suffix}'
+                f'Repeat Item{suffix}', iterable.type
             )
         else:
             assert isinstance(
@@ -257,13 +261,81 @@ class Compiler(a.NodeVisitor):
                 },
             )
             self._push_scope(None, ScopeType.FOREACH)
-            self.variables[node.target.id] = VariableValue(f'Repeat Item{suffix}')
+            self.variables[node.target.id] = VariableValue(
+                f'Repeat Item{suffix}', iterable.type
+            )
 
         self.actions.append(start_action)
         for stmt in node.body:
             self.visit(stmt)
         self.actions.append(end_action)
         self._pop_scope()
+
+    def visit_If(self, node: a.If) -> Any:
+        group_uuid = str(uuid.uuid4()).upper()
+        if node.orelse:
+            raise NotImplementedError("If...else is not supported")
+        if isinstance(node.test, a.Compare):
+            assert (
+                len(node.test.ops) == 1
+            ), "Only single compare operators are supported"
+            op = node.test.ops[0]
+            lhs: ShortcutValue = self.visit(node.test.left)
+            rhs: ShortcutValue = self.visit(node.test.comparators[0])
+            if lhs.type == T.text:
+                rhs_key = 'WFConditionalActionString'
+                rhs_factory = TokenStringValue
+            elif lhs.type == T.number:
+                rhs_key = 'WFNumberValue'
+                rhs_factory = TokenAttachmentValue
+            else:
+                raise NotImplementedError(
+                    f"Type {lhs.type.name} is not supported in comparisons"
+                )
+            if isinstance(op, a.Eq):
+                condition = 4
+                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
+            elif isinstance(op, a.Gt):
+                assert lhs.type == T.number
+                condition = 2
+                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
+            else:
+                raise NotImplementedError(
+                    f"If operator {op.__class__.__name__} is not supported"
+                )
+        else:
+            raise NotImplementedError(
+                f"If test {node.test.__class__.__name__} is not supported"
+            )
+
+        base_params = {'GroupingIdentifier': group_uuid}
+        start_params = (
+            base_params
+            | params
+            | {
+                'WFCondition': condition,
+                'WFControlFlowMode': 0,
+                'WFInput': {  # FIXME what is this wrapper??
+                    'Type': 'Variable',
+                    'Variable': TokenAttachmentValue(lhs).synthesize(self.actions),
+                },
+            }
+        )
+        end_params = base_params | {'WFControlFlowMode': 2}
+        start_action = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.conditional',
+            WFWorkflowActionParameters=start_params,
+        )
+        self.actions.append(start_action)
+
+        for stmt in node.body:
+            self.visit(stmt)
+
+        end_action = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.conditional',
+            WFWorkflowActionParameters=end_params,
+        )
+        self.actions.append(end_action)
 
     # expressions; all should return a Value
 
@@ -291,7 +363,8 @@ class Compiler(a.NodeVisitor):
 
     def visit_List(self, node: a.List) -> Any:
         values = [
-            TokenStringValue(self.visit(x)).synthesize(self.actions) for x in node.elts
+            ItemValue(0, TokenStringValue(self.visit(x))).synthesize(self.actions)
+            for x in node.elts
         ]
         action = Action(
             WFWorkflowActionIdentifier='is.workflow.actions.list',
