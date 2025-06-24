@@ -36,6 +36,8 @@ class Scope(BaseModel):
     type: ScopeType
     actions: list[Action] = Field(default_factory=list)
     variables: dict[str, Value] = Field(default_factory=dict)
+    wrappers: list[tuple[list[Action], list[Action]]] = Field(default_factory=list)
+    meta: dict[str, Any] = Field(default_factory=dict)
 
     def add_action(self, identifier: str, parameters: dict[str, Any]):
         action = Action(
@@ -60,7 +62,13 @@ class Compiler(a.NodeVisitor):
             assert scope.name
             self.functions[scope.name] = scope
         else:
-            self.actions.extend(scope.actions)
+            pre = []
+            post = []
+            for a, b in scope.wrappers:
+                pre.extend(a)
+                post.extend(b)
+            post = post[::-1]
+            self.actions.extend(pre + scope.actions + post)
 
     def _count_scopes(self, *types: ScopeType):
         count = 0
@@ -68,6 +76,9 @@ class Compiler(a.NodeVisitor):
             if scope.type in types:
                 count += 1
         return count
+
+    def _add_scope_wrapper(self, pre: list[Action], post: list[Action]):
+        self.scopes[-1].wrappers.append((pre, post))
 
     @property
     def variables(self):
@@ -265,10 +276,11 @@ class Compiler(a.NodeVisitor):
                 f'Repeat Item{suffix}', iterable.type
             )
 
-        self.actions.append(start_action)
+        self._add_scope_wrapper([start_action], [end_action])
+
         for stmt in node.body:
             self.visit(stmt)
-        self.actions.append(end_action)
+
         self._pop_scope()
 
     def visit_If(self, node: a.If) -> Any:
@@ -299,6 +311,7 @@ class Compiler(a.NodeVisitor):
                 assert lhs.type == T.number
                 condition = 2
                 params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
+            # TODO more operators
             else:
                 raise NotImplementedError(
                     f"If operator {op.__class__.__name__} is not supported"
@@ -337,6 +350,66 @@ class Compiler(a.NodeVisitor):
         )
         self.actions.append(end_action)
 
+    def visit_Break(self, node: a.Break) -> Any:
+        # find the outermost FOREACH/FORCOUNTER scope
+        for scope in self.scopes[::-1]:
+            if scope.type in [ScopeType.FORCOUNTER, ScopeType.FOREACH]:
+                break
+        else:
+            raise ValueError("Cannot break outside a for loop")
+        if 'break' not in scope.meta:
+            self._add_break_wrapper(scope)
+        action = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.setvariable',
+            WFWorkflowActionParameters={
+                'WFInput': TokenAttachmentValue(ConstantValue(1)).synthesize(
+                    self.actions
+                ),
+                'WFVariableName': scope.meta['break'],
+            },
+        )
+        self.actions.append(action)
+
+    def _add_break_wrapper(self, scope: Scope):
+        break_var_name = f'__break_{uuid.uuid4()}__'
+        pre = []
+        set_var_0 = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.setvariable',
+            WFWorkflowActionParameters={
+                'WFInput': TokenAttachmentValue(ConstantValue(0)).synthesize(pre),
+                'WFVariableName': break_var_name,
+            },
+        )
+        pre.append(set_var_0)
+        scope.wrappers.insert(0, (pre, []))
+        pre = []
+        group_uuid = str(uuid.uuid4()).upper()
+        if_start = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.conditional',
+            WFWorkflowActionParameters={
+                'GroupingIdentifier': group_uuid,
+                'WFCondition': 4,
+                'WFControlFlowMode': 0,
+                'WFInput': {
+                    'Type': 'Variable',
+                    'Variable': TokenAttachmentValue(
+                        VariableValue(break_var_name, T.number)
+                    ).synthesize(pre),
+                },
+                'WFNumberValue': 0,
+            },
+        )
+        pre.append(if_start)
+        if_end = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.conditional',
+            WFWorkflowActionParameters={
+                'GroupingIdentifier': group_uuid,
+                'WFControlFlowMode': 2,
+            },
+        )
+        scope.wrappers.append((pre, [if_end]))
+        scope.meta['break'] = break_var_name
+
     # expressions; all should return a Value
 
     def visit_Name(self, node: a.Name) -> Any:
@@ -370,6 +443,21 @@ class Compiler(a.NodeVisitor):
             WFWorkflowActionIdentifier='is.workflow.actions.list',
             WFWorkflowActionParameters={'WFItems': values},
         ).with_output('List', T.any)
+        self.actions.append(action)
+        return action.output
+
+    def visit_Subscript(self, node: a.Subscript) -> Any:
+        # FIXME what about dictionaries?
+        value = self.visit(node.value)
+        slice = self.visit(node.slice)
+        action = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.getitemfromlist',
+            WFWorkflowActionParameters={
+                'WFInput': TokenAttachmentValue(value).synthesize(self.actions),
+                'WFItemIndex': TokenAttachmentValue(slice).synthesize(self.actions),
+                'WFItemSpecifier': 'Item At Index',
+            },
+        ).with_output('Item from List', value.type)
         self.actions.append(action)
         return action.output
 
