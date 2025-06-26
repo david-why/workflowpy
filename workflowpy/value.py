@@ -1,5 +1,6 @@
+import ast
 import copy
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -40,9 +41,21 @@ class PythonModuleValue(PythonValue):
 class PythonActionBuilderValue(PythonValue):
     def __init__(self, /, func: Callable[..., Value | None]):
         self.func = func
+        self.prebuild: Callable[
+            [list[Action], ast.Call], ShortcutValue | Literal[True] | None
+        ] = lambda actions, node: None
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.func(*args, **kwargs)
+
+    def set_prebuild(
+        self,
+        func: Callable[
+            [list[Action], ast.Call], 'ShortcutValue | Literal[True] | None'
+        ],
+    ):
+        self.prebuild = func
+        return func
 
 
 class ShortcutValue(Value):
@@ -165,3 +178,18 @@ class ItemValue(ShortcutValue):
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
         return {'WFItemType': self.item_type, 'WFValue': self.value.synthesize(actions)}
+
+
+# helper functions
+
+
+def token_string(actions: list[Action], *parts: str | ShortcutValue):
+    return TokenStringValue(*parts).synthesize(actions)
+
+
+def token_attachment(actions: list[Action], value: ShortcutValue):
+    return TokenAttachmentValue(value).synthesize(actions)
+
+
+def item_value(actions: list[Action], item_type: int, value: ShortcutValue):
+    return ItemValue(item_type=item_type, value=value).synthesize(actions)

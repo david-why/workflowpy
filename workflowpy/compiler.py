@@ -19,6 +19,7 @@ from workflowpy.value import (
     TokenStringValue,
     Value,
     VariableValue,
+    token_attachment,
 )
 
 
@@ -142,6 +143,12 @@ class Compiler(a.NodeVisitor):
 
     def visit_Call(self, node: a.Call) -> Any:
         func = self.visit(node.func)
+        if isinstance(func, PythonActionBuilderValue):
+            prebuilt = func.prebuild(self.actions, node)
+            if prebuilt is not None:
+                if prebuilt is True:
+                    return
+                return prebuilt
         args = [self.visit(a) for a in node.args]
         kws = {kw.arg: self.visit(kw.value) for kw in node.keywords}
         if None in kws:
@@ -185,9 +192,9 @@ class Compiler(a.NodeVisitor):
             count_action = Action(
                 WFWorkflowActionIdentifier='is.workflow.actions.calculateexpression',
                 WFWorkflowActionParameters={
-                    'Input': TokenStringValue(
-                        range_end, ' - ', range_start, ' + 1'
-                    ).synthesize(self.actions)
+                    'Input': TokenStringValue(range_end, ' - ', range_start).synthesize(
+                        self.actions
+                    )
                 },
             ).with_output('Calculation Result', T.number)
             self.actions.append(count_action)
@@ -460,6 +467,46 @@ class Compiler(a.NodeVisitor):
         ).with_output('Item from List', value.type)
         self.actions.append(action)
         return action.output
+
+    def visit_BinOp(self, node: a.BinOp) -> Any:
+        lhs = self.visit(node.left)
+        rhs = self.visit(node.right)
+        if (
+            isinstance(node.op, (a.Add, a.Sub, a.Mult, a.Div))
+            and lhs.type == T.number
+            and rhs.type == T.number
+        ):
+            operation_map = {'Add': '+', 'Sub': '-', 'Mult': '*', 'Div': '/'}
+            action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.math',
+                WFWorkflowActionParameters={
+                    'WFInput': token_attachment(self.actions, lhs),
+                    'WFMathOperand': token_attachment(self.actions, rhs),
+                    'WFMathOperation': operation_map[node.op.__class__.__name__],
+                },
+            ).with_output('Calculation Result', T.number)
+            self.actions.append(action)
+            return action.output
+        raise NotImplementedError(
+            f"BinOp does not support {node.op.__class__.__name__} or the operand types"
+        )
+
+    def visit_UnaryOp(self, node: a.UnaryOp) -> Any:
+        lhs = self.visit(node.operand)
+        if isinstance(node.op, (a.USub)) and lhs.type == T.number:
+            action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.math',
+                WFWorkflowActionParameters={
+                    'WFInput': '0',
+                    'WFMathOperand': token_attachment(self.actions, lhs),
+                    'WFMathOperation': '-',
+                },
+            ).with_output('Calculation Result', T.number)
+            self.actions.append(action)
+            return action.output
+        raise NotImplementedError(
+            f"UnaryOp does not support {node.op.__class__.__name__} or the operand type"
+        )
 
     def generic_visit(self, node: a.AST) -> NoReturn:
         name = node.__class__.__name__
