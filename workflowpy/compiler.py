@@ -13,6 +13,7 @@ from workflowpy.value import (
     ConstantValue,
     ItemValue,
     PythonActionBuilderValue,
+    PythonModuleValue,
     PythonValue,
     ShortcutValue,
     TokenAttachmentValue,
@@ -20,6 +21,7 @@ from workflowpy.value import (
     Value,
     VariableValue,
     token_attachment,
+    token_string,
 )
 
 
@@ -110,20 +112,21 @@ class Compiler(a.NodeVisitor):
     def visit_ImportFrom(self, node: a.ImportFrom) -> Any:
         assert node.level == 0, "Relative imports are not supported"
         parts = cast(str, node.module).split('.')
-        mod = modules
+        mod = PythonModuleValue(**modules)
         for part in parts:
             try:
-                mod = mod[part]
+                mod = mod.getattr(part)
             except KeyError:
                 raise NotImplementedError(
                     f"Module {node.module!r} is not supported"
                 ) from None
+        assert isinstance(mod, PythonModuleValue), "{node.module} is not a module"
         for name in node.names:
             if name.name == '*':
-                for key in mod:
-                    self.variables[key] = mod[key]
+                for key in mod.children:
+                    self.variables[key] = mod.getattr(key)
             else:
-                self.variables[name.asname or name.name] = mod[name.name]
+                self.variables[name.asname or name.name] = mod.getattr(name.name)
 
     def visit_Assign(self, node: a.Assign) -> Any:
         # TODO multiple targets
@@ -507,6 +510,35 @@ class Compiler(a.NodeVisitor):
         raise NotImplementedError(
             f"UnaryOp does not support {node.op.__class__.__name__} or the operand type"
         )
+
+    def visit_Dict(self, node: a.Dict) -> Any:
+        action = Action(
+            WFWorkflowActionIdentifier='is.workflow.actions.dictionary',
+            WFWorkflowActionParameters={},
+        ).with_output('Dictionary', T.dictionary)
+        self.actions.append(action)
+        last_variable = action.output
+        assert last_variable
+        for key, val in zip(node.keys, node.values):
+            assert key is not None, "{**dict} expression is not supported"
+            key = self.visit(key)
+            val = self.visit(val)
+            action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.setvalueforkey',
+                WFWorkflowActionParameters={
+                    'WFDictionary': token_attachment(self.actions, last_variable),
+                    'WFDictionaryKey': token_string(self.actions, key),
+                    'WFDictionaryValue': token_string(self.actions, val),
+                },
+            ).with_output('Dictionary', T.dictionary)
+            self.actions.append(action)
+            last_variable = action.output
+            assert last_variable
+        return last_variable
+
+    def visit_Attribute(self, node: a.Attribute) -> Any:
+        value = self.visit(node.value)
+        return value.getattr(node.attr)
 
     def generic_visit(self, node: a.AST) -> NoReturn:
         name = node.__class__.__name__

@@ -31,11 +31,16 @@ class PythonValue(Value):
 
 
 class PythonModuleValue(PythonValue):
-    def __init__(self, /, **children: PythonValue):
+    def __init__(self, /, **children: Any):
         self.children = children
 
     def getattr(self, key: str):
-        return self.children[key]
+        value = self.children[key]
+        if isinstance(value, Value):
+            return value
+        if isinstance(value, dict):
+            return PythonModuleValue(**value)
+        raise TypeError(f'Unknown type in module path: {value.__class__.__name__}')
 
 
 class PythonActionBuilderValue(PythonValue):
@@ -172,12 +177,34 @@ class TokenAttachmentValue(ShortcutValue):
 
 # pseudo, used in list/dict items
 class ItemValue(ShortcutValue):
-    def __init__(self, item_type: int, value: ShortcutValue):
+    def __init__(
+        self, item_type: int, value: ShortcutValue, key: TokenStringValue | None = None
+    ):
         self.item_type = item_type
         self.value = value
+        self.key = key
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
-        return {'WFItemType': self.item_type, 'WFValue': self.value.synthesize(actions)}
+        return {
+            'WFItemType': self.item_type,
+            'WFValue': self.value.synthesize(actions),
+        } | ({'WFKey': self.key} if self.key is not None else {})
+
+
+# pseudo
+class DictionaryFieldValue(ShortcutValue):
+    def __init__(self, *items: ItemValue):
+        self.items = items
+
+    def synthesize(self, actions: list[Action]) -> dict[str, Any]:
+        return {
+            'Value': {
+                'WFDictionaryFieldValueItems': [
+                    x.synthesize(actions) for x in self.items
+                ]
+            },
+            'WFSerializationType': 'WFDictionaryFieldValue',
+        }
 
 
 # helper functions

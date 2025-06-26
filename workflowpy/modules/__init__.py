@@ -1,15 +1,12 @@
 import ast
+
 from workflowpy import value_type as T
 from workflowpy.definitions.action import action
-from workflowpy.models.shortcuts import Action, OutputDefinition
+from workflowpy.models.shortcuts import Action
 from workflowpy.utils import find_action_with_uuid
-from workflowpy.value import (
-    MagicVariableValue,
-    ShortcutValue as V,
-    token_attachment,
-    token_string,
-)
-from workflowpy.value import TokenAttachmentValue, TokenStringValue, Value
+from workflowpy.value import MagicVariableValue
+from workflowpy.value import ShortcutValue as V
+from workflowpy.value import TokenStringValue, token_attachment, token_string
 
 type L = list[Action]
 
@@ -65,7 +62,12 @@ def _str(a: L, /, value: V):
     return TokenStringValue(value)
 
 
+@action()
+def _xyzzy(a: L, /):
+    return TokenStringValue('this is a magic')
+
+
 modules = {
-    'workflowpy': {},
+    'workflowpy': {'test': {'xyzzy': _xyzzy}},
     '': {'input': _input, 'print': _print, 'int': _int, 'str': _str},
 }

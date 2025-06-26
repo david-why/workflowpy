@@ -19,10 +19,15 @@ class ValueType:
             return NotImplemented
         return value.content_item_class == self.content_item_class
 
+    __hash__ = object.__hash__
+
 
 _file_size = ValueType('File size', 'WFFileSizeContentItem', {})
+any = ValueType('', '', {})  # FIXME ???
 
 text = ValueType('Text', 'WFStringContentItem', {'File Size': _file_size}, str)
 number = ValueType('Number', 'WFNumberContentItem', {}, float)
-
-any = ValueType('', '', {})  # FIXME ???
+boolean = ValueType('Boolean', 'WFBooleanContentItem', {}, bool)
+dictionary = ValueType(
+    'Dictionary', 'WFDictionaryContentItem', {'Keys': text, 'Values': any}, dict
+)
