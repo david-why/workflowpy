@@ -54,6 +54,57 @@ def _int(a: L, /, value: V):
         WFWorkflowActionParameters={'WFNumberActionNumber': token_attachment(a, value)},
     ).with_output('Number', T.number)
     a.append(action)
+    output = action.output
+    assert output
+
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.text.split',
+        WFWorkflowActionParameters={
+            'WFTextCustomSeparator': '.',
+            'WFTextSeparator': 'Custom',
+            'text': token_attachment(a, output),
+        },
+    ).with_output('Split Text', T.text)
+    a.append(action)
+    output = action.output
+    assert output
+
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.getitemfromlist',
+        WFWorkflowActionParameters={'WFInput': token_attachment(a, output)},
+    ).with_output('Item from List', T.text)
+    a.append(action)
+    output = action.output
+    assert output
+
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.number',
+        WFWorkflowActionParameters={'WFNumberActionNumber': token_attachment(a, output)},
+    ).with_output('Number', T.number)
+    a.append(action)
+    output = action.output
+    assert output
+
+    return output
+
+
+@action()
+def _float(a: L, /, value: V):
+    if isinstance(value, MagicVariableValue):
+        input_action = find_action_with_uuid(a, value.uuid)
+        if (
+            input_action is not None
+            and input_action.WFWorkflowActionIdentifier == 'is.workflow.actions.ask'
+        ):
+            params = input_action.WFWorkflowActionParameters
+            params['WFInputType'] = 'Number'
+            input_action.with_output('Ask for Input', T.number)
+            return input_action.output
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.number',
+        WFWorkflowActionParameters={'WFNumberActionNumber': token_attachment(a, value)},
+    ).with_output('Number', T.number)
+    a.append(action)
     return action.output
 
 
@@ -69,5 +120,5 @@ def _xyzzy(a: L, /):
 
 modules = {
     'workflowpy': {'test': {'xyzzy': _xyzzy}},
-    '': {'input': _input, 'print': _print, 'int': _int, 'str': _str},
+    '': {'input': _input, 'print': _print, 'int': _int, 'float': _float, 'str': _str},
 }

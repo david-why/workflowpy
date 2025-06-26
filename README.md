@@ -56,5 +56,17 @@ This project uses Python's `ast` module to convert your Python code into an Abst
 - `list` and `dict` subscript access (read-only)
 - `+`, `-`, `*`, `/` for numbers
 - `-number`
+- Special constructions:
+  - `int(input(prompt))`: an Ask for Input action with integer number type
+  - `float(input(prompt))`: an Ask for Input action with number type
 
 More coming soon!
+
+## Type Confusion
+
+Sometimes, the compiler will get confused as to what type a variable is. One common case is when getting a value from a dictionary. This is undesirable because Shortcuts treats things of different types differently; for example, an `if x == y` statement for numbers is different than for text.
+
+To solve this issue, there are two ways:
+
+1. Add an explicit conversion, such as `str(var)`. This will add an extra action (in this case, Text) to the shortcut, but it will ensure the value is now of the given type. The following conversions are supported: `int`, `str`, `float`.
+2. If you're confident about the type a thing is, and you're confident that the Shortcuts runtime can figure it out, you can add a type annotation. Only the following annotations are supported: `int`, `float`, `str`, `bool`, `dict`, and `list[one_of_the_above]`. In most cases, it's probably best to use method 1.

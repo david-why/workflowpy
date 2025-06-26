@@ -165,6 +165,7 @@ class Compiler(a.NodeVisitor):
                 'float': T.number,
                 'dict': T.dictionary,
                 'str': T.text,
+                'bool': T.boolean,
             }.get(annot)
         self._assign(node.target, node.value, override_type=override_type)
 
