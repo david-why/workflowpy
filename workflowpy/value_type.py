@@ -7,7 +7,7 @@ class ValueType:
         name: str,
         content_item_class: str,
         properties: dict[str, 'ValueType'],
-        python_class: type | None = None,
+        python_class: type | tuple[type, ...] | None = None,
     ):
         self.name = name
         self.content_item_class = content_item_class
@@ -29,7 +29,7 @@ _file_size = ValueType('File size', 'WFFileSizeContentItem', {})
 any = ValueType('', '', {})  # FIXME ???
 
 text = ValueType('Text', 'WFStringContentItem', {'File Size': _file_size}, str)
-number = ValueType('Number', 'WFNumberContentItem', {}, float)
+number = ValueType('Number', 'WFNumberContentItem', {}, (float, int))
 boolean = ValueType('Boolean', 'WFBooleanContentItem', {}, bool)
 dictionary = ValueType(
     'Dictionary', 'WFDictionaryContentItem', {'Keys': text, 'Values': any}, dict

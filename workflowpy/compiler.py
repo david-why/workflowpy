@@ -1,20 +1,19 @@
 import ast as a
-from enum import Enum, IntEnum
-from typing import Any, NoReturn, cast
 import uuid
+from enum import IntEnum
+from typing import Any, NoReturn, cast
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from workflowpy import value_type as T
-from workflowpy.modules import modules
 from workflowpy.models.shortcuts import Action
+from workflowpy.modules import modules
 from workflowpy.synthesizer import Synthesizer
 from workflowpy.value import (
     ConstantValue,
     ItemValue,
     PythonActionBuilderValue,
     PythonModuleValue,
-    PythonValue,
     ShortcutValue,
     TokenAttachmentValue,
     TokenStringValue,
@@ -93,11 +92,15 @@ class Compiler(a.NodeVisitor):
 
     def compile(self, module: a.Module | str):
         self.scopes: list[Scope] = [
-            Scope(name=None, type=ScopeType.GLOBAL, variables=modules[''].copy())
+            Scope(name=None, type=ScopeType.GLOBAL, variables={})
         ]
+        mod = PythonModuleValue(**modules[''])
+        for key in mod.children:
+            self.variables[key] = mod.getattr(key)
         self.functions: dict[str, Scope] = {}
         if isinstance(module, str):
             module = a.parse(module)
+
         self.visit(module)
 
         synthesizer = Synthesizer()
@@ -128,10 +131,42 @@ class Compiler(a.NodeVisitor):
             else:
                 self.variables[name.asname or name.name] = mod.getattr(name.name)
 
+    def _assign(
+        self, var: a.expr, value: a.expr, override_type: T.ValueType | None = None
+    ):
+        if isinstance(var, a.Name):
+            name = var.id
+            val = self.visit(value)
+            if override_type is not None and hasattr(val, '_type'):
+                val._type = override_type
+            self.variables[name] = val
+        else:
+            raise NotImplementedError(f"Assign with target {var} is not supported")
+
     def visit_AnnAssign(self, node: a.AnnAssign) -> Any:
         assert node.value is not None, "Plain annotations are not supported"
-        assign = a.Assign(targets=[node.target], value=node.value)
-        self.visit(assign)
+        override_type = None
+        annot = None
+        if isinstance(node.annotation, a.Name):
+            annot = node.annotation.id
+            assert annot != 'list', 'List annotation must have a single type argument'
+        elif isinstance(node.annotation, a.Subscript) and isinstance(
+            node.annotation.value, a.Name
+        ):
+            annot = node.annotation.value.id
+            if annot == 'list':
+                assert isinstance(
+                    node.annotation.slice, a.Name
+                ), 'List annotation must have a single type argument'
+                annot = node.annotation.slice.id
+        if annot is not None:
+            override_type = {
+                'int': T.number,
+                'float': T.number,
+                'dict': T.dictionary,
+                'str': T.text,
+            }.get(annot)
+        self._assign(node.target, node.value, override_type=override_type)
 
     def visit_Assign(self, node: a.Assign) -> Any:
         # TODO multiple targets
@@ -139,15 +174,7 @@ class Compiler(a.NodeVisitor):
             raise NotImplementedError(
                 "Assign with more than one targets is not supported"
             )
-        if isinstance(node.targets[0], a.Name):
-            var_name = node.targets[0].id
-            value = self.visit(node.value)
-            self.variables[var_name] = value
-        else:
-            # TODO
-            raise NotImplementedError(
-                f"Assign with targets {node.targets} is not supported"
-            )
+        self._assign(node.targets[0], node.value)
 
     def visit_Call(self, node: a.Call) -> Any:
         func = self.visit(node.func)
@@ -186,7 +213,6 @@ class Compiler(a.NodeVisitor):
                 not node.iter.keywords
             ), "for...range constructs cannot have keyword arguments"
             range_args = node.iter.args
-            # TODO support range(len(X))
             if len(range_args) == 1:
                 range_start = ConstantValue(0)
                 range_end = self.visit(range_args[0])
@@ -304,8 +330,6 @@ class Compiler(a.NodeVisitor):
 
     def visit_If(self, node: a.If) -> Any:
         group_uuid = str(uuid.uuid4()).upper()
-        if node.orelse:
-            raise NotImplementedError("If...else is not supported")
         if isinstance(node.test, a.Compare):
             assert (
                 len(node.test.ops) == 1
@@ -327,9 +351,24 @@ class Compiler(a.NodeVisitor):
             if isinstance(op, a.Eq):
                 condition = 4
                 params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
+            elif isinstance(op, a.NotEq):
+                condition = 5
+                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
             elif isinstance(op, a.Gt):
                 assert lhs.type == T.number
                 condition = 2
+                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
+            elif isinstance(op, a.Lt):
+                assert lhs.type == T.number
+                condition = 0
+                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
+            elif isinstance(op, a.LtE):
+                assert lhs.type == T.number
+                condition = 1
+                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
+            elif isinstance(op, a.GtE):
+                assert lhs.type == T.number
+                condition = 3
                 params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
             elif isinstance(op, a.In):
                 if rhs.type == T.dictionary:
@@ -409,6 +448,17 @@ class Compiler(a.NodeVisitor):
         for stmt in node.body:
             self.visit(stmt)
 
+        if node.orelse:
+            otherwise_params = base_params | {'WFControlFlowMode': 1}
+            otherwise_action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.conditional',
+                WFWorkflowActionParameters=otherwise_params,
+            )
+            self.actions.append(otherwise_action)
+
+            for stmt in node.orelse:
+                self.visit(stmt)
+
         end_action = Action(
             WFWorkflowActionIdentifier='is.workflow.actions.conditional',
             WFWorkflowActionParameters=end_params,
@@ -416,7 +466,7 @@ class Compiler(a.NodeVisitor):
         self.actions.append(end_action)
 
     def visit_Break(self, node: a.Break) -> Any:
-        # find the outermost FOREACH/FORCOUNTER scope
+        # find the innermost FOREACH/FORCOUNTER scope
         for scope in self.scopes[::-1]:
             if scope.type in [ScopeType.FORCOUNTER, ScopeType.FOREACH]:
                 break

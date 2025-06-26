@@ -46,9 +46,9 @@ This project uses Python's `ast` module to convert your Python code into an Abst
 - `for index, value in enumerate(iterable)`
   - Only unpacking is supported (i.e., two loop variables)
 - `for name in list`, `for name in dict`
-- `if x [OP] y`
-  - For a number `x`: `[OP]` in `==`, `>`
-  - For text `x`: `[OP]` in `==`
+- `if x [OP] y ... elif ... else`
+  - For a number `x`: `[OP]` in `==`, `!=`, `>`, `<`, `<=`, `>=`
+  - For text `x`: `[OP]` in `==`, `!=`
   - For dictionary `y`: `[OP]` in `in`
 - `break`, `pass`
 - `str`, `int`, `float`, `list`, `dict` constants
