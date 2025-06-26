@@ -128,6 +128,11 @@ class Compiler(a.NodeVisitor):
             else:
                 self.variables[name.asname or name.name] = mod.getattr(name.name)
 
+    def visit_AnnAssign(self, node: a.AnnAssign) -> Any:
+        assert node.value is not None, "Plain annotations are not supported"
+        assign = a.Assign(targets=[node.target], value=node.value)
+        self.visit(assign)
+
     def visit_Assign(self, node: a.Assign) -> Any:
         # TODO multiple targets
         if len(node.targets) > 1:
@@ -266,6 +271,10 @@ class Compiler(a.NodeVisitor):
                 node.target, a.Name
             ), "Only simple loop variables are supported"
             iterable = self.visit(node.iter)
+            if iterable.type == T.dictionary:
+                iterable = iterable.aggrandized(
+                    'WFPropertyVariableAggrandizement', {'PropertyName': 'Keys'}
+                )
             start_action = Action(
                 WFWorkflowActionIdentifier='is.workflow.actions.repeat.each',
                 WFWorkflowActionParameters={
@@ -311,6 +320,7 @@ class Compiler(a.NodeVisitor):
                 rhs_key = 'WFNumberValue'
                 rhs_factory = TokenAttachmentValue
             else:
+                # FIXME other types for dict In supported?
                 raise NotImplementedError(
                     f"Type {lhs.type.name} is not supported in comparisons"
                 )
@@ -321,6 +331,51 @@ class Compiler(a.NodeVisitor):
                 assert lhs.type == T.number
                 condition = 2
                 params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
+            elif isinstance(op, a.In):
+                if rhs.type == T.dictionary:
+                    sep = str(uuid.uuid4())
+                    combine_action = Action(
+                        WFWorkflowActionIdentifier='is.workflow.actions.text.combine',
+                        WFWorkflowActionParameters={
+                            'WFTextCustomSeparator': sep,
+                            'WFTextSeparator': 'Custom',
+                            'text': token_attachment(
+                                self.actions,
+                                rhs.aggrandized(
+                                    'WFPropertyVariableAggrandizement',
+                                    {'PropertyName': 'Keys'},
+                                ),
+                            ),
+                        },
+                    ).with_output('Combined Text', T.text)
+                    self.actions.append(combine_action)
+                    combine_output = combine_action.output
+                    assert combine_output
+                    text_action = Action(
+                        WFWorkflowActionIdentifier='is.workflow.actions.gettext',
+                        WFWorkflowActionParameters={
+                            'WFTextActionText': token_string(
+                                self.actions, sep, combine_output, sep
+                            )
+                        },
+                    ).with_output('Text', T.text)
+                    self.actions.append(text_action)
+                    text_output = text_action.output
+                    assert text_output
+                    condition = 99
+                    params = {
+                        'WFInput': {
+                            'Type': 'Variable',
+                            'Variable': token_attachment(self.actions, text_output),
+                        },
+                        'WFConditionalActionString': token_string(
+                            self.actions, sep, lhs, sep
+                        ),
+                    }
+                else:
+                    raise NotImplementedError(
+                        f"If operator In for {rhs.type} is not supported"
+                    )
             # TODO more operators
             else:
                 raise NotImplementedError(
@@ -334,7 +389,6 @@ class Compiler(a.NodeVisitor):
         base_params = {'GroupingIdentifier': group_uuid}
         start_params = (
             base_params
-            | params
             | {
                 'WFCondition': condition,
                 'WFControlFlowMode': 0,
@@ -343,6 +397,7 @@ class Compiler(a.NodeVisitor):
                     'Variable': TokenAttachmentValue(lhs).synthesize(self.actions),
                 },
             }
+            | params
         )
         end_params = base_params | {'WFControlFlowMode': 2}
         start_action = Action(
@@ -420,6 +475,9 @@ class Compiler(a.NodeVisitor):
         scope.wrappers.append((pre, [if_end]))
         scope.meta['break'] = break_var_name
 
+    def visit_Pass(self, node: a.Pass) -> Any:
+        pass  # lol
+
     # expressions; all should return a Value
 
     def visit_Name(self, node: a.Name) -> Any:
@@ -457,17 +515,25 @@ class Compiler(a.NodeVisitor):
         return action.output
 
     def visit_Subscript(self, node: a.Subscript) -> Any:
-        # FIXME what about dictionaries?
         value = self.visit(node.value)
         slice = self.visit(node.slice)
-        action = Action(
-            WFWorkflowActionIdentifier='is.workflow.actions.getitemfromlist',
-            WFWorkflowActionParameters={
-                'WFInput': TokenAttachmentValue(value).synthesize(self.actions),
-                'WFItemIndex': TokenAttachmentValue(slice).synthesize(self.actions),
-                'WFItemSpecifier': 'Item At Index',
-            },
-        ).with_output('Item from List', value.type)
+        if value.type == T.dictionary:
+            action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.getvalueforkey',
+                WFWorkflowActionParameters={
+                    'WFDictionaryKey': token_string(self.actions, slice),
+                    'WFInput': token_attachment(self.actions, value),
+                },
+            ).with_output('Dictionary Value', T.any)
+        else:
+            action = Action(
+                WFWorkflowActionIdentifier='is.workflow.actions.getitemfromlist',
+                WFWorkflowActionParameters={
+                    'WFInput': TokenAttachmentValue(value).synthesize(self.actions),
+                    'WFItemIndex': TokenAttachmentValue(slice).synthesize(self.actions),
+                    'WFItemSpecifier': 'Item At Index',
+                },
+            ).with_output('Item from List', value.type)
         self.actions.append(action)
         return action.output
 
@@ -491,7 +557,7 @@ class Compiler(a.NodeVisitor):
             self.actions.append(action)
             return action.output
         raise NotImplementedError(
-            f"BinOp does not support {node.op.__class__.__name__} or the operand types"
+            f"BinOp does not support {node.op.__class__.__name__} for the operand types"
         )
 
     def visit_UnaryOp(self, node: a.UnaryOp) -> Any:

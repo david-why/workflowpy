@@ -21,6 +21,9 @@ class ValueType:
 
     __hash__ = object.__hash__
 
+    def __repr__(self):
+        return f'<ValueType name={self.name}>'
+
 
 _file_size = ValueType('File size', 'WFFileSizeContentItem', {})
 any = ValueType('', '', {})  # FIXME ???

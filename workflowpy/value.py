@@ -32,6 +32,7 @@ class PythonValue(Value):
 
 class PythonModuleValue(PythonValue):
     def __init__(self, /, **children: Any):
+        super().__init__()
         self.children = children
 
     def getattr(self, key: str):
@@ -45,6 +46,7 @@ class PythonModuleValue(PythonValue):
 
 class PythonActionBuilderValue(PythonValue):
     def __init__(self, /, func: Callable[..., Value | None]):
+        super().__init__()
         self.func = func
         self.prebuild: Callable[
             [list[Action], ast.Call], ShortcutValue | Literal[True] | None
@@ -65,6 +67,7 @@ class PythonActionBuilderValue(PythonValue):
 
 class ShortcutValue(Value):
     def __init__(self):
+        super().__init__()
         self.aggrandizements = []
 
     def aggrandized(self, type: str, fields: dict[str, Any]):
@@ -73,9 +76,16 @@ class ShortcutValue(Value):
         obj.aggrandizements.append({'Type': type, **fields})
         return obj
 
+    @property
+    def _aggrandize_props(self):
+        if self.aggrandizements:
+            return {'Aggrandizements': self.aggrandizements}
+        return {}
+
 
 class ConstantValue(ShortcutValue):
     def __init__(self, value: str | int | float):
+        super().__init__()
         self.value = value
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
@@ -86,7 +96,7 @@ class ConstantValue(ShortcutValue):
             ).with_output('Text', T.text)
             actions.append(action)
             assert action.output
-            return action.output.synthesize(actions)
+            return action.output.synthesize(actions) | self._aggrandize_props
         if isinstance(self.value, (int, float)):
             action = Action(
                 WFWorkflowActionIdentifier='is.workflow.actions.number',
@@ -94,7 +104,7 @@ class ConstantValue(ShortcutValue):
             ).with_output('Number', T.number)
             actions.append(action)
             assert action.output
-            return action.output.synthesize(actions)
+            return action.output.synthesize(actions) | self._aggrandize_props
         assert False
 
     @property
@@ -108,6 +118,7 @@ class ConstantValue(ShortcutValue):
 
 class MagicVariableValue(ShortcutValue):
     def __init__(self, uuid: str, name: str, type: ValueType) -> None:
+        super().__init__()
         self.uuid = uuid
         self.name = name
         self._type = type
@@ -117,7 +128,7 @@ class MagicVariableValue(ShortcutValue):
             'OutputName': self.name,
             'OutputUUID': self.uuid,
             'Type': 'ActionOutput',
-        }
+        } | self._aggrandize_props
 
     @property
     def type(self):
@@ -126,11 +137,12 @@ class MagicVariableValue(ShortcutValue):
 
 class VariableValue(ShortcutValue):
     def __init__(self, name: str, type: ValueType) -> None:
+        super().__init__()
         self.name = name
         self._type = type
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
-        return {'Type': 'Variable', 'VariableName': self.name}
+        return {'Type': 'Variable', 'VariableName': self.name} | self._aggrandize_props
 
     @property
     def type(self):
@@ -140,6 +152,7 @@ class VariableValue(ShortcutValue):
 # "pseudo" value, will never be held by a variable
 class TokenStringValue(ShortcutValue):
     def __init__(self, *parts: str | ShortcutValue):
+        super().__init__()
         self.parts = parts
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
@@ -166,6 +179,7 @@ class TokenStringValue(ShortcutValue):
 # also pseudo
 class TokenAttachmentValue(ShortcutValue):
     def __init__(self, value: ShortcutValue):
+        super().__init__()
         self.value = value
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
@@ -180,6 +194,7 @@ class ItemValue(ShortcutValue):
     def __init__(
         self, item_type: int, value: ShortcutValue, key: TokenStringValue | None = None
     ):
+        super().__init__()
         self.item_type = item_type
         self.value = value
         self.key = key
@@ -194,6 +209,7 @@ class ItemValue(ShortcutValue):
 # pseudo
 class DictionaryFieldValue(ShortcutValue):
     def __init__(self, *items: ItemValue):
+        super().__init__()
         self.items = items
 
     def synthesize(self, actions: list[Action]) -> dict[str, Any]:
