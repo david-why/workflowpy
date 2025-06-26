@@ -32,4 +32,29 @@ Now, you can double click the `How are my grades.shortcut` file on your Mac, imp
 
 ## How it works
 
-This project uses Python's `ast` module to convert your Python code into an Abstract Syntax Tree, which is then traversed to find 
+This project uses Python's `ast` module to convert your Python code into an Abstract Syntax Tree, which is then traversed to convert each line of code into one or more actions in Shortcuts. Because of this nature, not all Python commands are implemented; I'm working on implementing all of them soon!
+
+## Supported Python code
+
+- `from ... import ...`
+  - Only supported modules (see the end of [this file](./workflowpy/modules/__init__.py) for details)
+- `name = value`
+- `input(prompt)` (Ask for Input), `print(value, ...)` (Show Result)
+- `int(value)` (Number), `str(value)` (Text)
+- `for name in range(val[, val])`
+  - Only one or two parameters supported
+- `for index, value in enumerate(iterable)`
+  - Only unpacking is supported (i.e., two loop variables)
+- `for name in list`, `for name in dict`
+- `if x [OP] y`
+  - For a number `x`: `[OP]` in `==`, `>`
+  - For text `x`: `[OP]` in `==`
+  - For dictionary `y`: `[OP]` in `in`
+- `break`, `pass`
+- `str`, `int`, `float`, `list`, `dict` constants
+- F-strings
+- `list` and `dict` subscript access (read-only)
+- `+`, `-`, `*`, `/` for numbers
+- `-number`
+
+More coming soon!
