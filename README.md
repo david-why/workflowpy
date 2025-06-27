@@ -2,6 +2,8 @@
 
 Write plain Python code, and compile it to an iOS Shortcut!
 
+- PyPI link: [https://pypi.org/project/workflowpy-shortcuts](https://pypi.org/project/workflowpy-shortcuts/)
+
 ## Table of Contents <!-- omit from toc -->
 - [Example](#example)
 - [How it works](#how-it-works)
