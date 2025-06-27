@@ -53,7 +53,10 @@ class PythonModuleValue(PythonValue):
 
 class PythonFunctionValue(PythonValue):
     def __init__(
-        self, /, func: Callable[..., Value | None], raw_params: list[str] | None = None
+        self,
+        /,
+        func: Callable[..., Value | None],
+        raw_params: list[str | int] | None = None,
     ):
         super().__init__()
         self.func = func

@@ -2,6 +2,8 @@ from typing import ClassVar
 
 
 class ValueType:
+    ALL_TYPES: ClassVar['list[ValueType]'] = []
+
     def __init__(
         self,
         name: str,
@@ -12,7 +14,12 @@ class ValueType:
         self.name = name
         self.content_item_class = content_item_class
         self.properties = properties
-        self.python_class = python_class
+        self.python_class = (
+            python_class
+            if isinstance(python_class, (tuple, type(None)))
+            else (python_class,)
+        )
+        ValueType.ALL_TYPES.append(self)
 
     def __eq__(self, value: object) -> bool:
         if not isinstance(value, ValueType):
@@ -23,7 +30,6 @@ class ValueType:
 
     def __repr__(self):
         return f'<ValueType name={self.name}>'
-
 
 _file_size = ValueType('File size', 'WFFileSizeContentItem', {})
 any = ValueType('', '', {})  # FIXME ???

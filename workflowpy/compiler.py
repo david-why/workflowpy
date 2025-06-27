@@ -195,10 +195,12 @@ class Compiler(a.NodeVisitor):
 
     def visit_Call(self, node: a.Call) -> Any:
         func = self.visit(node.func)
-        args = [self.visit(a) for a in node.args]
         raw_params = set()
         if isinstance(func, PythonFunctionValue):
             raw_params.update(func.raw_params)
+        args = [
+            self.visit(a) if i not in raw_params else a for i, a in enumerate(node.args)
+        ]
         kws = {
             kw.arg: self.visit(kw.value) if kw.arg not in raw_params else kw.value
             for kw in node.keywords

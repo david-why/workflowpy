@@ -15,6 +15,8 @@ from workflowpy.value import (
 )
 from workflowpy.value_type import ValueType
 
+from . import custom, types
+
 type V = ShortcutValue
 
 
@@ -106,4 +108,10 @@ def fetch(
 
 App = PythonTypeValue(ValueType('App', 'WFAppContentItem', {'Is Running': T.boolean}))
 
-module = {'shortcut_input': shortcut_input, 'fetch': fetch, 'App': App}
+module = {
+    'types': types.module,
+    'custom': custom.module,
+    'shortcut_input': shortcut_input,
+    'fetch': fetch,
+    'App': App,
+}

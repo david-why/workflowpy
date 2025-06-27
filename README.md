@@ -11,7 +11,7 @@ from workflowpy.compiler import Compiler
 from workflowpy.utils import sign_shortcut
 
 code = """
-from workflowpy import *
+from workflowpy.magic import *
 thresholds = [90, 80, 60, 0]
 names = ['wonderful', 'great', 'okay', 'terrible']
 grade = int(input("Please enter your grade: "))

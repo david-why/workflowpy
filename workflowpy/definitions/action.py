@@ -36,7 +36,9 @@ class ActionHelper:
         return self.compiler.visit(node)
 
     @overload
-    def action(self, id: str, params: dict[str, Any] = ...) -> None: ...
+    def action(
+        self, id: str, params: dict[str, Any] = ..., output: None = None
+    ) -> None: ...
 
     @overload
     def action(
@@ -68,7 +70,7 @@ class ActionHelper:
         return item_value(self.actions, item_type, value)
 
 
-def action(raw_params: list[str] | None = None):
+def action(raw_params: list[str | int] | None = None):
     def decorator(func: Callable[..., Value | None]) -> PythonFunctionValue:
         builder = PythonFunctionValue(func, raw_params=raw_params)
         return builder
