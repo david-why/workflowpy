@@ -1,10 +1,10 @@
 import ast
-from typing import TYPE_CHECKING, Any
 import warnings
+from typing import Any
 
 from workflowpy import value_type as T
+from workflowpy.definitions.action import ActionHelper as H
 from workflowpy.definitions.action import action
-from workflowpy.models.shortcuts import Action
 from workflowpy.value import (
     DictionaryFieldValue,
     ItemValue,
@@ -12,29 +12,23 @@ from workflowpy.value import (
     ShortcutInputValue,
     ShortcutValue,
     TokenStringValue,
-    token_attachment,
-    token_string,
 )
 from workflowpy.value_type import ValueType
 
-if TYPE_CHECKING:
-    from workflowpy.compiler import Compiler
-
-type L = list[Action]
 type V = ShortcutValue
 
 
 @action()
-def shortcut_input(a: L):
+def shortcut_input(h: H):
     return ShortcutInputValue()
 
 
 fetch_supported_methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']
 
 
-@action(raw_params=['method', 'headers'], compiler_arg='_compiler')
+@action(raw_params=['method', 'headers'])
 def fetch(
-    a: L,
+    h: H,
     /,
     url: V,
     *,
@@ -42,9 +36,8 @@ def fetch(
     headers: ast.expr | None = None,
     data: V | None = None,
     json: V | None = None,
-    _compiler: 'Compiler',
 ):
-    params: dict[str, Any] = {'ShowHeaders': True, 'WFURL': token_string(a, url)}
+    params: dict[str, Any] = {'ShowHeaders': True, 'WFURL': h.token_string(url)}
     if method is not None:
         if not (
             isinstance(method, ast.Constant) and method.value in fetch_supported_methods
@@ -63,20 +56,15 @@ def fetch(
         raise TypeError('Headers must be a literal dict')
     if data is not None:
         params['WFHTTPBodyType'] = 'File'
-        params['WFRequestVariable'] = token_attachment(a, data)
+        params['WFRequestVariable'] = h.token_attachment(data)
     if json is not None:
         params['WFHTTPBodyType'] = 'File'
-        convert_action = Action(
-            WFWorkflowActionIdentifier='is.workflow.actions.gettypeaction',
-            WFWorkflowActionParameters={
-                'WFFileType': 'public.json',
-                'WFInput': token_attachment(a, json),
-            },
-        ).with_output('File of Type', T.file)
-        a.append(convert_action)
-        json = convert_action.output
-        assert json
-        params['WFRequestVariable'] = token_attachment(a, json)
+        json = h.action(
+            'is.workflow.actions.gettypeaction',
+            {'WFFileType': 'public.json', 'WFInput': h.token_attachment(json)},
+            ('File of Type', T.file),
+        )
+        params['WFRequestVariable'] = h.token_attachment(json)
         should_add_header = True
         if headers is not None:
             for key, value in zip(headers.keys, headers.values):
@@ -104,17 +92,16 @@ def fetch(
             header_items.append(
                 ItemValue(
                     0,
-                    TokenStringValue(_compiler.visit(value)),
-                    TokenStringValue(_compiler.visit(key)),
+                    TokenStringValue(h.visit(value)),
+                    TokenStringValue(h.visit(key)),
                 )
             )
-        params['WFHTTPHeaders'] = DictionaryFieldValue(*header_items).synthesize(a)
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.downloadurl',
-        WFWorkflowActionParameters=params,
-    ).with_output('Contents of URL', T.file)
-    a.append(action)
-    return action.output
+        params['WFHTTPHeaders'] = DictionaryFieldValue(*header_items).synthesize(
+            h.actions
+        )
+    return h.action(
+        'is.workflow.actions.downloadurl', params, ('Contents of URL', T.file)
+    )
 
 
 App = PythonTypeValue(ValueType('App', 'WFAppContentItem', {'Is Running': T.boolean}))

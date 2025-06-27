@@ -1,44 +1,39 @@
 from workflowpy import value_type as T
+from workflowpy.definitions.action import ActionHelper as H
 from workflowpy.definitions.action import action
-from workflowpy.models.shortcuts import Action
 from workflowpy.modules import _workflowpy
-from workflowpy.utils import find_action_with_uuid
 from workflowpy.value import MagicVariableValue
 from workflowpy.value import ShortcutValue as V
-from workflowpy.value import TokenStringValue, token_attachment, token_string
-
-type L = list[Action]
+from workflowpy.value import TokenStringValue
 
 __all__ = ['modules']
 
 
 @action()
-def _input(a: L, /, prompt: V):
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.ask',
-        WFWorkflowActionParameters={
+def _input(h: H, /, prompt: V):
+    return h.action(
+        'is.workflow.actions.ask',
+        {
             'WFAllowsMultilineText': False,
             # 'WFAskActionDefaultAnswer': '',
-            'WFAskActionPrompt': token_string(a, prompt),
+            'WFAskActionPrompt': h.token_string(prompt),
         },
-    ).with_output('Ask for Input', T.text)
-    a.append(action)
-    return action.output
-
-
-@action()
-def _print(a: L, /, *args: V):
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.showresult',
-        WFWorkflowActionParameters={'Text': token_string(a, *args)},
+        ('Ask for Input', T.text),
     )
-    a.append(action)
 
 
 @action()
-def _int(a: L, /, value: V):
+def _print(h: H, /, *args: V):
+    items: list[V | str] = list(args)
+    for i in range(len(items) - 1):
+        items.insert(i * 2, ' ')
+    h.action('is.workflow.actions.showresult', {'Text': h.token_string(*items)})
+
+
+@action()
+def _int(h: H, /, value: V):
     if isinstance(value, MagicVariableValue):
-        input_action = find_action_with_uuid(a, value.uuid)
+        input_action = h.find_action(value.uuid)
         if (
             input_action is not None
             and input_action.WFWorkflowActionIdentifier == 'is.workflow.actions.ask'
@@ -48,51 +43,39 @@ def _int(a: L, /, value: V):
             params['WFAskActionAllowsDecimalNumbers'] = False
             input_action.with_output('Ask for Input', T.number)
             return input_action.output
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.number',
-        WFWorkflowActionParameters={'WFNumberActionNumber': token_attachment(a, value)},
-    ).with_output('Number', T.number)
-    a.append(action)
-    output = action.output
-    assert output
+    output = h.action(
+        'is.workflow.actions.number',
+        {'WFNumberActionNumber': h.token_attachment(value)},
+        ('Number', T.number),
+    )
 
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.text.split',
-        WFWorkflowActionParameters={
+    output = h.action(
+        'is.workflow.actions.text.split',
+        {
             'WFTextCustomSeparator': '.',
             'WFTextSeparator': 'Custom',
-            'text': token_attachment(a, output),
+            'text': h.token_attachment(output),
         },
-    ).with_output('Split Text', T.text)
-    a.append(action)
-    output = action.output
-    assert output
+        ('Split Text', T.text),
+    )
 
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.getitemfromlist',
-        WFWorkflowActionParameters={'WFInput': token_attachment(a, output)},
-    ).with_output('Item from List', T.text)
-    a.append(action)
-    output = action.output
-    assert output
+    output = h.action(
+        'is.workflow.actions.getitemfromlist',
+        {'WFInput': h.token_attachment(output)},
+        ('Item from List', T.text),
+    )
 
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.number',
-        WFWorkflowActionParameters={
-            'WFNumberActionNumber': token_attachment(a, output)
-        },
-    ).with_output('Number', T.number)
-    a.append(action)
-    output = action.output
-    assert output
-
-    return output
+    return h.action(
+        'is.workflow.actions.number',
+        {'WFNumberActionNumber': h.token_attachment(output)},
+        ('Number', T.number),
+    )
 
 
 @action()
-def _float(a: L, /, value: V):
+def _float(h: H, /, value: V):
     if isinstance(value, MagicVariableValue):
-        input_action = find_action_with_uuid(a, value.uuid)
+        input_action = h.find_action(value.uuid)
         if (
             input_action is not None
             and input_action.WFWorkflowActionIdentifier == 'is.workflow.actions.ask'
@@ -101,36 +84,30 @@ def _float(a: L, /, value: V):
             params['WFInputType'] = 'Number'
             input_action.with_output('Ask for Input', T.number)
             return input_action.output
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.number',
-        WFWorkflowActionParameters={'WFNumberActionNumber': token_attachment(a, value)},
-    ).with_output('Number', T.number)
-    a.append(action)
-    return action.output
+    return h.action(
+        'is.workflow.actions.number',
+        {'WFNumberActionNumber': h.token_attachment(value)},
+        ('Number', T.number),
+    )
 
 
 @action()
-def _str(a: L, /, value: V):
+def _str(h: H, /, value: V):
     return TokenStringValue(value)
 
 
 @action()
-def _dict(a: L, /, value: V):
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.detect.dictionary',
-        WFWorkflowActionParameters={'WFInput': token_attachment(a, value)},
-    ).with_output('Dictionary', T.dictionary)
-    a.append(action)
-    return action.output
+def _dict(h: H, /, value: V):
+    return h.action(
+        'is.workflow.actions.detect.dictionary',
+        {'WFInput': h.token_attachment(value)},
+        ('Dictionary', T.dictionary),
+    )
 
 
 @action()
-def _exit(a: L, /, code=None):
-    action = Action(
-        WFWorkflowActionIdentifier='is.workflow.actions.exit',
-        WFWorkflowActionParameters={},
-    )
-    a.append(action)
+def _exit(h: H, /, code=None):
+    h.action('is.workflow.actions.exit')
 
 
 modules = {

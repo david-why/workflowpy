@@ -1,11 +1,12 @@
 import ast as a
 import uuid
 from enum import IntEnum
-from typing import Any, NoReturn, cast
+from typing import Any, NoReturn, cast, overload
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from workflowpy import value_type as T
+from workflowpy.definitions.action import ActionHelper
 from workflowpy.models.shortcuts import Action
 from workflowpy.modules import modules
 from workflowpy.synthesizer import Synthesizer
@@ -13,7 +14,8 @@ from workflowpy.utils import convert_property_to_name
 from workflowpy.value import (
     ConstantValue,
     ItemValue,
-    PythonActionBuilderValue,
+    MagicVariableValue,
+    PythonFunctionValue,
     PythonModuleValue,
     PythonTypeValue,
     ShortcutValue,
@@ -195,7 +197,7 @@ class Compiler(a.NodeVisitor):
         func = self.visit(node.func)
         args = [self.visit(a) for a in node.args]
         raw_params = set()
-        if isinstance(func, PythonActionBuilderValue):
+        if isinstance(func, PythonFunctionValue):
             raw_params.update(func.raw_params)
         kws = {
             kw.arg: self.visit(kw.value) if kw.arg not in raw_params else kw.value
@@ -204,10 +206,8 @@ class Compiler(a.NodeVisitor):
         if None in kws:
             raise NotImplementedError("**kwargs in Call is not supported")
         kws = cast(dict[str, Any], kws)
-        if isinstance(func, PythonActionBuilderValue):
-            if func.compiler_arg:
-                kws[func.compiler_arg] = self
-            result = func(self.actions, *args, **kws)
+        if isinstance(func, PythonFunctionValue):
+            result = func(ActionHelper(self), *args, **kws)
             return result
         else:
             raise NotImplementedError(f"Call with func {func} is not supported")

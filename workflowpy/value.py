@@ -51,18 +51,13 @@ class PythonModuleValue(PythonValue):
         raise TypeError(f'Unknown type in module path: {value.__class__.__name__}')
 
 
-class PythonActionBuilderValue(PythonValue):
+class PythonFunctionValue(PythonValue):
     def __init__(
-        self,
-        /,
-        func: Callable[..., Value | None],
-        raw_params: list[str] | None = None,
-        compiler_arg: str | None = None,
+        self, /, func: Callable[..., Value | None], raw_params: list[str] | None = None
     ):
         super().__init__()
         self.func = func
         self.raw_params = raw_params or []
-        self.compiler_arg = compiler_arg
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.func(*args, **kwargs)
