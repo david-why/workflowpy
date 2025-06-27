@@ -1,6 +1,6 @@
 [project]
 name = "workflowpy-shortcuts"
-version = "0.1.1"
+version = "0.1.2"
 description = "Create iOS Shortcuts with Python code"
 authors = [
     { name = "david-why", email = "david_why@outlook.com" }
