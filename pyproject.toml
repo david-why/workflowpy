@@ -1,10 +1,20 @@
-[tool.poetry]
-name = "workflowpy"
-version = "0.1.0"
+[project]
+name = "workflowpy-shortcuts"
+version = "0.1.1"
 description = "Create iOS Shortcuts with Python code"
-authors = ["david-why <david_why@outlook.com>"]
+authors = [
+    { name = "david-why", email = "david_why@outlook.com" }
+]
 license = "MIT"
 readme = "README.md"
+
+[project.urls]
+repository = "https://github.com/david-why/workflowpy"
+
+[tool.poetry]
+packages = [
+    { include = "workflowpy" }
+]
 
 [tool.poetry.dependencies]
 python = "^3.12"
