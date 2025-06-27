@@ -74,7 +74,6 @@ This project uses Python's `ast` module to convert your Python code into an Abst
 - `list` and `dict` subscript access (read-only)
 - `+`, `-`, `*`, `/` for numbers
 - `-number`
-  - **IMPORTANT**: Make sure you use a type annotation or conversion (see below) for this!
 - Special constructions:
   - `int(input(prompt))`: an Ask for Input action with integer number type
   - `float(input(prompt))`: an Ask for Input action with number type
