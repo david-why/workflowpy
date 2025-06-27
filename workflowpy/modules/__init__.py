@@ -2,11 +2,21 @@ from workflowpy import value_type as T
 from workflowpy.definitions.action import ActionHelper as H
 from workflowpy.definitions.action import action
 from workflowpy.modules import _workflowpy
-from workflowpy.value import MagicVariableValue
+from workflowpy.value import MagicVariableValue, Value
 from workflowpy.value import ShortcutValue as V
 from workflowpy.value import TokenStringValue
 
-__all__ = ['modules']
+__all__ = ['register']
+
+
+def register(module_path: str, module: dict[str, Value]):
+    mod = modules
+    *parts, last_part = module_path.split('.')
+    for part in parts:
+        mod = mod.setdefault(part, {})
+    if last_part in mod:
+        raise ValueError(f'Module {module_path} is already registered')
+    mod[last_part] = module
 
 
 @action()

@@ -15,6 +15,8 @@ Write plain Python code, and compile it to an iOS Shortcut!
   - [Format of a Shortcut](#format-of-a-shortcut)
   - [Find the source code of an action](#find-the-source-code-of-an-action)
   - [Find the parameters](#find-the-parameters)
+  - [Create a Python function](#create-a-python-function)
+  - [Optional: Create stubs](#optional-create-stubs)
 
 ## Example
 
@@ -196,4 +198,171 @@ Now, open the plist file in any text editor, and look under the `WFWorkflowActio
 
 ### Find the parameters
 
-If you filled out all the paramters, you should be able to see all of them under the `WFWorkflowActionParameters` key for the action.
+If you filled out all the paramters, you should be able to see all of them under the `WFWorkflowActionParameters` key for the action. Now, you might think, "wow that's so easy I'm done." Not so fast!
+
+From my experience, Shortcuts stores parameters in one of a couple ways:
+
+1. A literal value. This is a boolean, integer, floating point number (stored as a string), or string, directly written in the plist.
+2. A "token string." This is when an input field allows you to enter some text, then insert a variable, then some other text, etc. For example, take a look at this Text action:
+   
+   ```xml
+   <dict>
+     <key>WFWorkflowActionIdentifier</key>
+     <string>is.workflow.actions.gettext</string>
+     <key>WFWorkflowActionParameters</key>
+     <dict>
+       <key>UUID</key>
+       <string>635096BB-1AFD-4ACA-8560-62A3910FC9F0</string>
+       <key>WFTextActionText</key>
+       <dict>
+         <key>Value</key>
+         <dict>
+           <key>attachmentsByRange</key>
+           <dict>
+             <key>{35, 1}</key>
+             <dict>
+               <key>Type</key>
+               <string>CurrentDate</string>
+             </dict>
+           </dict>
+           <key>string</key>
+           <string>This is some text with a variable (￼) inserted</string>
+         </dict>
+         <key>WFSerializationType</key>
+         <string>WFTextTokenString</string>
+       </dict>
+     </dict>
+   </dict>
+   ```
+
+   The space between the parentheses is not actually (supposed to be) a space. Rather, it's a `U+FFFC Object Replacement Character`. I doubt that the character there matters at all, since as indicated by the `attachmentsByRange` key, this character at index 35 will be replaced by a variable, namely, the current date.
+3. A "token attachment." This is when an input field only allows you to select a single variable, or when it allows you to either type or select a variable, but not both. Some examples include the Number action and the Set Variable action. For example, look at this Number action:
+   
+   ```xml
+   <dict>
+     <key>WFWorkflowActionIdentifier</key>
+     <string>is.workflow.actions.number</string>
+     <key>WFWorkflowActionParameters</key>
+     <dict>
+       <key>UUID</key>
+       <string>21A19859-69EC-4C5A-8553-F85CC203A30A</string>
+       <key>WFNumberActionNumber</key>
+       <dict>
+         <key>Value</key>
+         <dict>
+           <key>Type</key>
+           <string>ExtensionInput</string>
+         </dict>
+         <key>WFSerializationType</key>
+         <string>WFTextTokenAttachment</string>
+       </dict>
+     </dict>
+   </dict>
+   ```
+
+   It has a token attachment for the `WFNumberActionNumber` parameter (the only parameter it has, actually), where the Shortcut Input is passed in.
+
+   For the Number action, you can also type the value in:
+
+   ```xml
+   <key>WFNumberActionNumber</key>
+   <string>12.34</string>
+   ```
+
+   But for the Set Variable action, that's not allowed.
+4. Some more complex actions, such as the Get Contents of URL action, have more complex parameter types such as dictionaries, arrays, etc. But for the most part, those are the types you'll encounter.
+
+### Create a Python function
+
+Alright, so now you know the parameters, how do you extend the compiler?
+
+First, create a blank Python file in your project directory, and fill it with this template:
+
+```py
+from workflowpy import value_type as T
+from workflowpy.definitions.action import ActionHelper as H
+from workflowpy.definitions.action import action
+from workflowpy.value import ShortcutValue as V
+
+@action()
+def your_action(h: H, /):
+    pass
+
+module = {'your_action': your_action}
+```
+
+There are a few things to note here:
+
+- `@action()`: This tells the compiler that this is an action builder. (It's kind of a misnomer, since technically, the function doesn't have to create an action, but oh well.)
+- `h: H`: This is a handy helper that helps you constructs an action, construct parameters, etc. (More on it in a second!)
+- `module = {...}`: This defines an entry point for the compiler to see everything your module has to offer. You should add an entry for each action you implement, with the key being the name of the function that you will call in the compiled Python code.
+
+Now, inside the function, you would typically parse the arguments, build the action, and optionally return a value (most likely the output of your action). This is best illustrated with an example, which implements the Ask for Input action:
+
+```py
+@action()
+def _input(h: H, /, prompt: V):
+    return h.action(
+        'is.workflow.actions.ask',
+        {
+            'WFAllowsMultilineText': False,
+            'WFAskActionPrompt': h.token_string(prompt),
+        },
+        ('Ask for Input', T.text),
+    )
+```
+
+Let's break it down:
+
+- The function takes in one argument (apart from the helper), `prompt`,
+- It calls the `h.action` method to create an action.
+  - The first argument to `h.action()` is the action identifier.
+  - The second argument is a dict of parameters to the action.
+  - The optional third argument is the output specification. If present, it must be a 2-tuple, with the first element being the name of the output variable, and the second element being its type (an instance of `ValueType`).
+- It then returns the result of the `h.action()` function call, which is the output of the created action.
+
+The parameters to the action must be a dict where all values are plist types (i.e., str, dict, list, bool, int, for the most part). To use the arguments to your function in the parameters dict, you must use one of the following methods to convert them:
+
+- `h.token_attachment(value)`: This converts a value into a token attachment. If you don't know what that means, read the last section.
+- `h.token_string(*parts)`: This converts an array of values into a token string. Each part can be a literal string or a variable.
+
+Finally, after you finish creating your action, you can add it into the compiler's system by calling this function before you compile your code:
+
+```py
+from workflowpy.modules import register
+from your_module import module
+
+register('your_module', module)
+```
+
+Now you can import your module from your compiled Python code like this:
+
+```py
+from your_module import your_action
+
+result = your_action(...)
+print(result)
+```
+
+### Optional: Create stubs
+
+If you just do that, your editor will probably scream at you. Optionally, you can create stubs (`.pyi` files) to make your editor less sad.
+
+To do this, first create a file with the same name as your module, but with an extra `i` at the end. For example, if you defined your actions in `your_module.py`, create a file named `your_module.pyi`.
+
+Now, you define functions that correspond to the actions you defined. For example, if you defined this action:
+
+```py
+@action()
+def _input(h: H, /, prompt: V): ...
+```
+
+A reasonable function definition is:
+
+```py
+def input(prompt: str) -> str: ...
+```
+
+You don't have to provide a function body; just the declaration with ellipsis at the end is sufficient.
+
+With these stubs, your editor will know the signatures of your actions, which will make your life much easier.
