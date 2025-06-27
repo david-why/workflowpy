@@ -39,7 +39,7 @@ This project uses Python's `ast` module to convert your Python code into an Abst
 - `from ... import ...`
   - Only supported modules (see the end of [this file](./workflowpy/modules/__init__.py) for details)
 - `name = value`
-- `input(prompt)` (Ask for Input), `print(value, ...)` (Show Result)
+- `input(prompt)` (Ask for Input), `print(value, ...)` (Show Result), `exit(code)` (Stop This Shortcut, `code` unused)
 - `int(value)` (Number), `str(value)` (Text)
 - `for name in range(val[, val])`
   - Only one or two parameters supported
@@ -56,6 +56,8 @@ This project uses Python's `ast` module to convert your Python code into an Abst
 - `list` and `dict` subscript access (read-only)
 - `+`, `-`, `*`, `/` for numbers
 - `-number`
+- `shortcut_input()`
+  - **IMPORTANT**: Make sure you use a type annotation or conversion (see below) for this!
 - Special constructions:
   - `int(input(prompt))`: an Ask for Input action with integer number type
   - `float(input(prompt))`: an Ask for Input action with number type
@@ -69,4 +71,4 @@ Sometimes, the compiler will get confused as to what type a variable is. One com
 To solve this issue, there are two ways:
 
 1. Add an explicit conversion, such as `str(var)`. This will add an extra action (in this case, Text) to the shortcut, but it will ensure the value is now of the given type. The following conversions are supported: `int`, `str`, `float`.
-2. If you're confident about the type a thing is, and you're confident that the Shortcuts runtime can figure it out, you can add a type annotation. Only the following annotations are supported: `int`, `float`, `str`, `bool`, `dict`, and `list[one_of_the_above]`. In most cases, it's probably best to use method 1.
+2. If you're confident about the type a thing is, you can add a type annotation. This will also set the type of the value in the generated Shortcut. Only the following annotations are supported: `int`, `float`, `str`, `bool`, `dict`, and `list[one_of_the_above]`. In most cases, it's probably best to use method 1.

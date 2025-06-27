@@ -25,6 +25,13 @@ class Value:
     def type(self) -> ValueType:
         raise TypeError(f"Value of type {self.__class__.__name__} has no content type")
 
+    @property
+    def can_get_property(self) -> bool:
+        return False
+
+    def copy(self):
+        return copy.copy(self)
+
 
 class PythonValue(Value):
     pass
@@ -65,6 +72,12 @@ class PythonActionBuilderValue(PythonValue):
         return func
 
 
+class PythonTypeValue(PythonValue):
+    def __init__(self, type: ValueType) -> None:
+        super().__init__()
+        self.value_type = type
+
+
 class ShortcutValue(Value):
     def __init__(self):
         super().__init__()
@@ -81,6 +94,13 @@ class ShortcutValue(Value):
         if self.aggrandizements:
             return {'Aggrandizements': self.aggrandizements}
         return {}
+
+    @property
+    def can_get_property(self) -> bool:
+        return not any(
+            x['Type'] == 'WFPropertyVariableAggrandizement'
+            for x in self.aggrandizements
+        )
 
 
 class ConstantValue(ShortcutValue):
@@ -147,6 +167,19 @@ class VariableValue(ShortcutValue):
     @property
     def type(self):
         return self._type
+
+
+class ShortcutInputValue(ShortcutValue):
+    def __init__(self):
+        super().__init__()
+        self._type = T.any
+
+    @property
+    def type(self):
+        return self._type
+
+    def synthesize(self, actions: list[Action]) -> dict[str, Any]:
+        return {'Type': 'ExtensionInput'} | self._aggrandize_props
 
 
 # "pseudo" value, will never be held by a variable

@@ -9,11 +9,13 @@ from workflowpy import value_type as T
 from workflowpy.models.shortcuts import Action
 from workflowpy.modules import modules
 from workflowpy.synthesizer import Synthesizer
+from workflowpy.utils import convert_property_to_name
 from workflowpy.value import (
     ConstantValue,
     ItemValue,
     PythonActionBuilderValue,
     PythonModuleValue,
+    PythonTypeValue,
     ShortcutValue,
     TokenAttachmentValue,
     TokenStringValue,
@@ -139,17 +141,35 @@ class Compiler(a.NodeVisitor):
             val = self.visit(value)
             if override_type is not None and hasattr(val, '_type'):
                 val._type = override_type
+                val = val.aggrandized(
+                    'WFCoercionVariableAggrandizement',
+                    {'CoercionItemClass': override_type.content_item_class},
+                )
             self.variables[name] = val
         else:
             raise NotImplementedError(f"Assign with target {var} is not supported")
 
     def visit_AnnAssign(self, node: a.AnnAssign) -> Any:
         assert node.value is not None, "Plain annotations are not supported"
+        override_type_map = {
+            'int': T.number,
+            'float': T.number,
+            'dict': T.dictionary,
+            'str': T.text,
+            'bool': T.boolean,
+        }
         override_type = None
         annot = None
         if isinstance(node.annotation, a.Name):
             annot = node.annotation.id
             assert annot != 'list', 'List annotation must have a single type argument'
+            if annot not in override_type_map:
+                annot_val = self.visit(node.annotation)
+                if isinstance(annot_val, PythonTypeValue):
+                    override_type = annot_val.value_type
+                    annot = None
+                else:
+                    raise ValueError(f'Unknown type annotation {annot}')
         elif isinstance(node.annotation, a.Subscript) and isinstance(
             node.annotation.value, a.Name
         ):
@@ -160,13 +180,7 @@ class Compiler(a.NodeVisitor):
                 ), 'List annotation must have a single type argument'
                 annot = node.annotation.slice.id
         if annot is not None:
-            override_type = {
-                'int': T.number,
-                'float': T.number,
-                'dict': T.dictionary,
-                'str': T.text,
-                'bool': T.boolean,
-            }.get(annot)
+            override_type = override_type_map.get(annot)
         self._assign(node.target, node.value, override_type=override_type)
 
     def visit_Assign(self, node: a.Assign) -> Any:
@@ -329,115 +343,118 @@ class Compiler(a.NodeVisitor):
 
         self._pop_scope()
 
-    def visit_If(self, node: a.If) -> Any:
-        group_uuid = str(uuid.uuid4()).upper()
+    def _parse_if_values(self, node: a.If):
         if isinstance(node.test, a.Compare):
             assert (
                 len(node.test.ops) == 1
-            ), "Only single compare operators are supported"
+            ), "Only a single compare operator are supported"
             op = node.test.ops[0]
+
             lhs: ShortcutValue = self.visit(node.test.left)
-            rhs: ShortcutValue = self.visit(node.test.comparators[0])
-            if lhs.type == T.text:
-                rhs_key = 'WFConditionalActionString'
-                rhs_factory = TokenStringValue
-            elif lhs.type == T.number:
-                rhs_key = 'WFNumberValue'
-                rhs_factory = TokenAttachmentValue
-            else:
-                # FIXME other types for dict In supported?
-                raise NotImplementedError(
-                    f"Type {lhs.type.name} is not supported in comparisons"
-                )
-            if isinstance(op, a.Eq):
-                condition = 4
-                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
-            elif isinstance(op, a.NotEq):
-                condition = 5
-                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
-            elif isinstance(op, a.Gt):
-                assert lhs.type == T.number
-                condition = 2
-                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
-            elif isinstance(op, a.Lt):
-                assert lhs.type == T.number
-                condition = 0
-                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
-            elif isinstance(op, a.LtE):
-                assert lhs.type == T.number
-                condition = 1
-                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
-            elif isinstance(op, a.GtE):
-                assert lhs.type == T.number
-                condition = 3
-                params = {rhs_key: rhs_factory(rhs).synthesize(self.actions)}
-            elif isinstance(op, a.In):
-                if rhs.type == T.dictionary:
-                    sep = str(uuid.uuid4())
-                    combine_action = Action(
-                        WFWorkflowActionIdentifier='is.workflow.actions.text.combine',
-                        WFWorkflowActionParameters={
-                            'WFTextCustomSeparator': sep,
-                            'WFTextSeparator': 'Custom',
-                            'text': token_attachment(
-                                self.actions,
-                                rhs.aggrandized(
-                                    'WFPropertyVariableAggrandizement',
-                                    {'PropertyName': 'Keys'},
-                                ),
+
+            bp = {
+                'WFInput': {
+                    'Type': 'Variable',
+                    'Variable': token_attachment(self.actions, lhs),
+                }
+            }
+
+            rhs_raw = node.test.comparators[0]
+            rhs_is_none = isinstance(rhs_raw, a.Constant) and rhs_raw.value is None
+            if rhs_is_none:
+                # special: need to un-cast LHS for certain types to compare correctly
+                lhs = lhs.copy()
+                lhs.aggrandizements = [
+                    a
+                    for a in lhs.aggrandizements
+                    if a['Type'] != 'WFCoercionVariableAggrandizement'
+                ]
+                bp['WFInput']['Variable'] = token_attachment(self.actions, lhs)
+            if rhs_is_none and isinstance(op, a.Is):
+                return 101, bp
+            elif rhs_is_none and isinstance(op, a.IsNot):
+                return 100, bp
+
+            rhs: ShortcutValue = self.visit(rhs_raw)
+            if lhs.type == T.number and isinstance(op, a.Eq):
+                return 4, bp | {'WFNumberValue': token_attachment(self.actions, rhs)}
+            elif lhs.type == T.number and isinstance(op, a.NotEq):
+                return 5, bp | {'WFNumberValue': token_attachment(self.actions, rhs)}
+            elif lhs.type == T.number and isinstance(op, a.Gt):
+                return 2, bp | {'WFNumberValue': token_attachment(self.actions, rhs)}
+            elif lhs.type == T.number and isinstance(op, a.Lt):
+                return 0, bp | {'WFNumberValue': token_attachment(self.actions, rhs)}
+            elif lhs.type == T.number and isinstance(op, a.LtE):
+                return 1, bp | {'WFNumberValue': token_attachment(self.actions, rhs)}
+            elif lhs.type == T.number and isinstance(op, a.GtE):
+                return 3, bp | {'WFNumberValue': token_attachment(self.actions, rhs)}
+
+            elif lhs.type == T.text and isinstance(op, a.Eq):
+                return 4, bp | {
+                    'WFConditionalActionString': token_string(self.actions, rhs)
+                }
+            elif lhs.type == T.text and isinstance(op, a.NotEq):
+                return 5, bp | {
+                    'WFConditionalActionString': token_string(self.actions, rhs)
+                }
+
+            elif rhs.type == T.dictionary and isinstance(op, a.In):
+                sep = str(uuid.uuid4())
+                combine_action = Action(
+                    WFWorkflowActionIdentifier='is.workflow.actions.text.combine',
+                    WFWorkflowActionParameters={
+                        'WFTextCustomSeparator': sep,
+                        'WFTextSeparator': 'Custom',
+                        'text': token_attachment(
+                            self.actions,
+                            rhs.aggrandized(
+                                'WFPropertyVariableAggrandizement',
+                                {'PropertyName': 'Keys'},
                             ),
-                        },
-                    ).with_output('Combined Text', T.text)
-                    self.actions.append(combine_action)
-                    combine_output = combine_action.output
-                    assert combine_output
-                    text_action = Action(
-                        WFWorkflowActionIdentifier='is.workflow.actions.gettext',
-                        WFWorkflowActionParameters={
-                            'WFTextActionText': token_string(
-                                self.actions, sep, combine_output, sep
-                            )
-                        },
-                    ).with_output('Text', T.text)
-                    self.actions.append(text_action)
-                    text_output = text_action.output
-                    assert text_output
-                    condition = 99
-                    params = {
-                        'WFInput': {
-                            'Type': 'Variable',
-                            'Variable': token_attachment(self.actions, text_output),
-                        },
-                        'WFConditionalActionString': token_string(
-                            self.actions, sep, lhs, sep
                         ),
-                    }
-                else:
-                    raise NotImplementedError(
-                        f"If operator In for {rhs.type} is not supported"
-                    )
-            # TODO more operators
+                    },
+                ).with_output('Combined Text', T.text)
+                self.actions.append(combine_action)
+                combine_output = combine_action.output
+                assert combine_output
+                text_action = Action(
+                    WFWorkflowActionIdentifier='is.workflow.actions.gettext',
+                    WFWorkflowActionParameters={
+                        'WFTextActionText': token_string(
+                            self.actions, sep, combine_output, sep
+                        )
+                    },
+                ).with_output('Text', T.text)
+                self.actions.append(text_action)
+                text_output = text_action.output
+                assert text_output
+                return 99, bp | {
+                    'WFInput': {
+                        'Type': 'Variable',
+                        'Variable': token_attachment(self.actions, text_output),
+                    },
+                    'WFConditionalActionString': token_string(
+                        self.actions, sep, lhs, sep
+                    ),
+                }
+
             else:
                 raise NotImplementedError(
                     f"If operator {op.__class__.__name__} is not supported"
                 )
         else:
             raise NotImplementedError(
-                f"If test {node.test.__class__.__name__} is not supported"
+                f"If expression {node.test.__class__.__name__} is not supported"
             )
+
+    def visit_If(self, node: a.If) -> Any:
+        group_uuid = str(uuid.uuid4()).upper()
+
+        condition, params = self._parse_if_values(node)
 
         base_params = {'GroupingIdentifier': group_uuid}
         start_params = (
-            base_params
-            | {
-                'WFCondition': condition,
-                'WFControlFlowMode': 0,
-                'WFInput': {  # FIXME what is this wrapper??
-                    'Type': 'Variable',
-                    'Variable': TokenAttachmentValue(lhs).synthesize(self.actions),
-                },
-            }
-            | params
+            base_params | {'WFCondition': condition, 'WFControlFlowMode': 0} | params
         )
         end_params = base_params | {'WFControlFlowMode': 2}
         start_action = Action(
@@ -655,7 +672,21 @@ class Compiler(a.NodeVisitor):
 
     def visit_Attribute(self, node: a.Attribute) -> Any:
         value = self.visit(node.value)
-        return value.getattr(node.attr)
+        attr = node.attr
+        try:
+            return value.getattr(attr)
+        except TypeError as exc:
+            if not value.can_get_property:
+                raise ValueError(f'Cannot get property for value {value}') from None
+            try:
+                type: T.ValueType = value.type
+                for prop in type.properties:
+                    if convert_property_to_name(prop) == attr:
+                        return value.aggrandized(
+                            'WFPropertyVariableAggrandizement', {'PropertyName': prop}
+                        )
+            except TypeError:
+                raise exc
 
     def generic_visit(self, node: a.AST) -> NoReturn:
         name = node.__class__.__name__

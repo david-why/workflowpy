@@ -52,3 +52,7 @@ def sign_shortcut(shortcut: 'Shortcut') -> bytes:
 
         with open(signed_filename, 'rb') as f:
             return f.read()
+
+
+def convert_property_to_name(property: str) -> str:
+    return property.lower().replace(' ', '_')

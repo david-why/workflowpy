@@ -1,4 +1,5 @@
 from pathlib import Path
+import plistlib
 
 from workflowpy.compiler import Compiler
 from workflowpy.utils import sign_shortcut
@@ -9,7 +10,7 @@ with open(path / 'example.py') as f:
     code = f.read()
 
 shortcut = Compiler().compile(code)
-signed_shortcut = sign_shortcut(shortcut)
+# signed_shortcut = sign_shortcut(shortcut)
 
-with open(path / 'signed.shortcut', 'wb') as f:
-    f.write(signed_shortcut)
+with open(path / 'unsigned.shortcut', 'wb') as f:
+    plistlib.dump(shortcut.model_dump(mode='json'), f)

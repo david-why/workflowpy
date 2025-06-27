@@ -1,8 +1,7 @@
-import ast
-
 from workflowpy import value_type as T
 from workflowpy.definitions.action import action
 from workflowpy.models.shortcuts import Action
+from workflowpy.modules import _workflowpy
 from workflowpy.utils import find_action_with_uuid
 from workflowpy.value import MagicVariableValue
 from workflowpy.value import ShortcutValue as V
@@ -79,7 +78,9 @@ def _int(a: L, /, value: V):
 
     action = Action(
         WFWorkflowActionIdentifier='is.workflow.actions.number',
-        WFWorkflowActionParameters={'WFNumberActionNumber': token_attachment(a, output)},
+        WFWorkflowActionParameters={
+            'WFNumberActionNumber': token_attachment(a, output)
+        },
     ).with_output('Number', T.number)
     a.append(action)
     output = action.output
@@ -114,11 +115,33 @@ def _str(a: L, /, value: V):
 
 
 @action()
-def _xyzzy(a: L, /):
-    return TokenStringValue('this is a magic')
+def _dict(a: L, /, value: V):
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.detect.dictionary',
+        WFWorkflowActionParameters={'WFInput': token_attachment(a, value)},
+    ).with_output('Dictionary', T.dictionary)
+    a.append(action)
+    return action.output
+
+
+@action()
+def _exit(a: L, /, code=None):
+    action = Action(
+        WFWorkflowActionIdentifier='is.workflow.actions.exit',
+        WFWorkflowActionParameters={},
+    )
+    a.append(action)
 
 
 modules = {
-    'workflowpy': {'test': {'xyzzy': _xyzzy}},
-    '': {'input': _input, 'print': _print, 'int': _int, 'float': _float, 'str': _str},
+    'workflowpy': _workflowpy.module,
+    '': {
+        'input': _input,
+        'print': _print,
+        'int': _int,
+        'float': _float,
+        'str': _str,
+        'dict': _dict,
+        'exit': _exit,
+    },
 }
