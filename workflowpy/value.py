@@ -52,24 +52,20 @@ class PythonModuleValue(PythonValue):
 
 
 class PythonActionBuilderValue(PythonValue):
-    def __init__(self, /, func: Callable[..., Value | None]):
+    def __init__(
+        self,
+        /,
+        func: Callable[..., Value | None],
+        raw_params: list[str] | None = None,
+        compiler_arg: str | None = None,
+    ):
         super().__init__()
         self.func = func
-        self.prebuild: Callable[
-            [list[Action], ast.Call], ShortcutValue | Literal[True] | None
-        ] = lambda actions, node: None
+        self.raw_params = raw_params or []
+        self.compiler_arg = compiler_arg
 
     def __call__(self, *args: Any, **kwargs: Any) -> Any:
         return self.func(*args, **kwargs)
-
-    def set_prebuild(
-        self,
-        func: Callable[
-            [list[Action], ast.Call], 'ShortcutValue | Literal[True] | None'
-        ],
-    ):
-        self.prebuild = func
-        return func
 
 
 class PythonTypeValue(PythonValue):
@@ -236,7 +232,7 @@ class ItemValue(ShortcutValue):
         return {
             'WFItemType': self.item_type,
             'WFValue': self.value.synthesize(actions),
-        } | ({'WFKey': self.key} if self.key is not None else {})
+        } | ({'WFKey': self.key.synthesize(actions)} if self.key is not None else {})
 
 
 # pseudo

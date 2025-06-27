@@ -28,6 +28,7 @@ class ValueType:
 _file_size = ValueType('File size', 'WFFileSizeContentItem', {})
 any = ValueType('', '', {})  # FIXME ???
 
+file = ValueType('File', 'WFGenericFileContentItem', {'File Size': _file_size})
 text = ValueType('Text', 'WFStringContentItem', {'File Size': _file_size}, str)
 number = ValueType('Number', 'WFNumberContentItem', {}, (float, int))
 boolean = ValueType('Boolean', 'WFBooleanContentItem', {}, bool)

@@ -193,18 +193,20 @@ class Compiler(a.NodeVisitor):
 
     def visit_Call(self, node: a.Call) -> Any:
         func = self.visit(node.func)
-        if isinstance(func, PythonActionBuilderValue):
-            prebuilt = func.prebuild(self.actions, node)
-            if prebuilt is not None:
-                if prebuilt is True:
-                    return
-                return prebuilt
         args = [self.visit(a) for a in node.args]
-        kws = {kw.arg: self.visit(kw.value) for kw in node.keywords}
+        raw_params = set()
+        if isinstance(func, PythonActionBuilderValue):
+            raw_params.update(func.raw_params)
+        kws = {
+            kw.arg: self.visit(kw.value) if kw.arg not in raw_params else kw.value
+            for kw in node.keywords
+        }
         if None in kws:
             raise NotImplementedError("**kwargs in Call is not supported")
         kws = cast(dict[str, Any], kws)
         if isinstance(func, PythonActionBuilderValue):
+            if func.compiler_arg:
+                kws[func.compiler_arg] = self
             result = func(self.actions, *args, **kws)
             return result
         else:

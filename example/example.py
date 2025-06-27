@@ -1,12 +1,5 @@
 from workflowpy import *
 
-names = {'David': 'owner', 'Foo': 'editor'}
+file = fetch('http://localhost:8889/', method='POST', json={'a': 'b'})
 
-name = input('What is your name?')
-
-if name in names:
-    print(f"You're in, {name}, as an {names[name]}!")
-elif name == 'What':
-    print('What??')
-else:
-    print('Who the heck are you?')
+print(file)
