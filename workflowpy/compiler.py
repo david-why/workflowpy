@@ -181,6 +181,13 @@ class Compiler(a.NodeVisitor):
                     node.annotation.slice, a.Name
                 ), 'List annotation must have a single type argument'
                 annot = node.annotation.slice.id
+        else:
+            annot_val = self.visit(node.annotation)
+            if isinstance(annot_val, PythonTypeValue):
+                override_type = annot_val.value_type
+                annot = None
+            else:
+                raise ValueError(f'Unknown type annotation {node.annotation}')
         if annot is not None:
             override_type = override_type_map.get(annot)
         self._assign(node.target, node.value, override_type=override_type)

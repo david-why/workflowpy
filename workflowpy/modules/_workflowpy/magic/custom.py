@@ -49,7 +49,7 @@ def _compile_expr(h: H, node: a.expr):
             if isinstance(value, a.Constant):
                 assert isinstance(value.value, str)
                 parts.append(value.value)
-            elif isinstance(value, a.Name):
+            elif isinstance(value, a.FormattedValue):
                 parts.append(h.visit(value))
             else:
                 raise TypeError(
@@ -104,9 +104,4 @@ def _attachment(h: H, /, value: V):
     return TokenAttachmentValue(value)
 
 
-@action()
-def _string(h: H, /, *values: V):
-    return TokenStringValue(*values)
-
-
-module = {'action': _action, 'attachment': _attachment, 'string': _string}
+module = {'action': _action, 'attachment': _attachment}
