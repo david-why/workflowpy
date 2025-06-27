@@ -1,23 +1,11 @@
 from workflowpy.magic import *
-from workflowpy.magic import types as T
-from workflowpy.magic.custom import *
 
-file = fetch('http://localhost:8889/', method='POST', json={'a': 'b'})
+thresholds = [90, 80, 60, 0]
+names = ['wonderful', 'great', 'okay', 'terrible']
 
-text = action(
-    'is.workflow.actions.setitemname',
-    {
-        'WFDontIncludeFileExtension': True,
-        'WFInput': attachment(file),
-        'WFName': 'text.txt',
-    },
-    ('Renamed Item', T.file),
-)
+grade = int(input("Please enter your grade: "))
 
-text = action(
-    'is.workflow.actions.gettext',
-    {'WFTextActionText': f'some{text}thing'},
-    ('Text', T.text),
-)
-
-print(text)
+for i, threshold in enumerate(thresholds):
+    if grade > threshold:
+        print(f"You are doing {names[i]}!")
+        break
